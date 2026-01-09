@@ -11,7 +11,7 @@
         "data": {
           "browser_url": "Fügen Sie hier die Browser-URL ein"
         },
-        "description": "Klicken Sie auf den Link unten, um Bticino X8000 zu autorisieren. Fügen Sie nach der Autorisierung die Weiterleitungs-URL des Browsers hier ein.",
+        "description": "Klicken Sie auf den Link unten, um zu autorisieren:\n\n[HIER KLICKEN ZUR AUTORISIERUNG]({auth_url})\n\nNach der Autorisierung werden Sie auf eine Seite weitergeleitet. Kopieren Sie die vollständige URL aus der Adressleiste des Browsers und fügen Sie sie unten ein.",
         "title": "Legrand/Bticino Smarther - Legacy-Authentifizierungsmethode"
       },
       "select_thermostats": {

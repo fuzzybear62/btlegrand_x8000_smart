@@ -146,7 +146,8 @@ class BticinoBaseSensor(CoordinatorEntity, SensorEntity):
         return DeviceInfo(
             identifiers={(DOMAIN, self._topology_id)},
             name=self._thermostat_name,
-            manufacturer="Legrand",
+            # UPDATED: Changed manufacturer to indicate the source integration
+            manufacturer="BtLegrand",
             model="X8000",
             via_device=(DOMAIN, self._plant_id),
         )
@@ -541,8 +542,9 @@ class BticinoApiCountSensor(CoordinatorEntity, SensorEntity):
         """Create a Virtual Device for the Cloud Service."""
         return DeviceInfo(
             identifiers={(DOMAIN, self.coordinator.entry.entry_id)},
-            name="Bticino Cloud Service",
-            manufacturer="Legrand",
+            # UPDATED: Renamed to distinguish from original integration
+            name="BtLegrand Service",
+            manufacturer="BtLegrand",
             model="API Gateway",
             entry_type=DeviceEntryType.SERVICE,
         )
@@ -604,8 +606,9 @@ class BticinoSkippedPollsSensor(CoordinatorEntity, SensorEntity):
         """Link to the Cloud Service device."""
         return DeviceInfo(
             identifiers={(DOMAIN, self.coordinator.entry.entry_id)},
-            name="Bticino Cloud Service",
-            manufacturer="Legrand",
+            # UPDATED: Renamed to distinguish from original integration
+            name="BtLegrand Service",
+            manufacturer="BtLegrand",
             model="API Gateway",
             entry_type=DeviceEntryType.SERVICE,
         )

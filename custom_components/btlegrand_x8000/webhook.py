@@ -86,7 +86,7 @@ class BticinoX8000WebhookHandler:
             self.hass,
             DOMAIN,
             # UPDATED: Rebranded Name for UI consistency
-            "Legrand/Bticino Smarther",
+            "BtLegrand Smarther",
             self.webhook_id,
             self.handle_webhook,
             local_only=False,

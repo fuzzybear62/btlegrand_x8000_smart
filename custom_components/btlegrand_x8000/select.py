@@ -78,7 +78,8 @@ class BticinoBaseSelect(CoordinatorEntity, SelectEntity):
         return DeviceInfo(
             identifiers={(DOMAIN, self._topology_id)},
             name=self._thermostat_name,
-            manufacturer="Legrand",
+            # UPDATED: Changed manufacturer to indicate the source integration
+            manufacturer="BtLegrand",
             model="X8000",
         )
 
@@ -132,7 +133,9 @@ class BticinoBoostSelect(BticinoBaseSelect):
         programs,
     ) -> None:
         """Initialize."""
+        # BUGFIX: Removed 'programs' from super().__init__ call
         super().__init__(coordinator, plant_id, topology_id, thermostat_name)
+        
         # UPDATED: Use dynamic DOMAIN for unique_id to support rebranding
         self._attr_unique_id = f"{DOMAIN}_{topology_id}_boost"
         self._programs = programs
@@ -286,7 +289,9 @@ class BticinoProgramSelect(BticinoBaseSelect):
         programs,
     ) -> None:
         """Initialize."""
+        # BUGFIX: Removed 'programs' from super().__init__ call
         super().__init__(coordinator, plant_id, topology_id, thermostat_name)
+        
         # UPDATED: Use dynamic DOMAIN for unique_id to support rebranding
         self._attr_unique_id = f"{DOMAIN}_{topology_id}_program"
         self._programs = programs

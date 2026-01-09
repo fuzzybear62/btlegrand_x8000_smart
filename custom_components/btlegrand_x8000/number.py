@@ -74,8 +74,9 @@ class BticinoBaseNumber(CoordinatorEntity, NumberEntity):
         """Link this entity to the 'Bticino Cloud Service' virtual device."""
         return DeviceInfo(
             identifiers={(DOMAIN, self.coordinator.entry.entry_id)},
-            name="Bticino Cloud Service",
-            manufacturer="Legrand",
+            # UPDATED: Renamed to distinguish from original integration
+            name="BtLegrand Service",
+            manufacturer="BtLegrand",
             model="API Gateway",
             entry_type=DeviceEntryType.SERVICE,
         )

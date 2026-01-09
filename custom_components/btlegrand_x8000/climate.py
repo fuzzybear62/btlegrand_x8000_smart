@@ -109,7 +109,8 @@ class BticinoX8000Climate(CoordinatorEntity, ClimateEntity):
         return {
             "identifiers": {(DOMAIN, self._topology_id)},
             "name": self._device_name,
-            "manufacturer": "Legrand",
+            # UPDATED: Changed manufacturer to indicate the source integration
+            "manufacturer": "BtLegrand",
             "model": "X8000",
         }
     
