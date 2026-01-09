@@ -1,0 +1,142 @@
+{
+  "config": {
+    "error": {
+      "invalid_credentials": "Identifiants invalides",
+      "invalid_url": "L'URL est invalide : {message}",
+      "unable_to_connect_hass_url": "Impossible de se connecter à l'URL de Home Assistant. Veuillez vérifier l'URL Externe dans Configuration -> Général",
+      "unknown_error": "Erreur inconnue : {message}"
+    },
+    "step": {
+      "get_authorize_code": {
+        "data": {
+          "browser_url": "Collez ici l'URL du navigateur"
+        },
+        "description": "Cliquez sur le lien ci-dessous pour autoriser Bticino X8000. Après autorisation, collez l'URL de redirection du navigateur ici.",
+        "title": "Legrand/Bticino Smarther - Méthode d'Auth Legacy"
+      },
+      "select_thermostats": {
+        "data": {
+          "select_thermostats": "Sélectionnez les thermostats à ajouter"
+        },
+        "description": "Sélectionnez les thermostats à ajouter",
+        "title": "Legrand/Bticino Smarther - Thermostats"
+      },
+      "url_warning": {
+        "data": {
+          "url_warning": "Ignorer et Continuer - Je comprends qu'aucun support pour les problèmes de connexion n'est fourni en contournant cet avertissement."
+        },
+        "description": "Le serveur HA ne peut pas se connecter à l'URL fournie : {hass_url}.\n> {error}\n\nPour corriger cela, veuillez confirmer que votre **serveur HA** peut atteindre {hass_url}. Ce champ provient de l'URL Externe sous Configuration -> Général, mais vous pouvez essayer votre URL interne.\n\nSi vous êtes **certain** que votre client peut atteindre cette URL, vous pouvez contourner cet avertissement et utiliser l'authentification legacy.",
+        "title": "Legrand/Bticino Smarther - Impossible de se connecter à l'URL HA"
+      },
+      "user": {
+        "data": {
+          "client_id": "ID Client",
+          "client_secret": "Secret Client",
+          "external_url": "URL pour accéder à Home Assistant",
+          "legacy_mode": "Mode Legacy (Utilisez le site externe pour l'auth uniquement si votre HA n'est pas accessible depuis internet)",
+          "subscription_key": "Clé d'abonnement (Subscription Key)"
+        },
+        "description": "Veuillez confirmer les informations ci-dessous. Pour la configuration legacy, cochez l'option mode legacy.",
+        "title": "Legrand/Bticino Smarther - Configuration"
+      }
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "data": {
+          "update_interval": "Intervalle de mise à jour (minutes)",
+          "cool_down_interval": "Période de pause/Cool Down (minutes)",
+          "webhook_debounce": "Anti-rebond Webhook (secondes)",
+          "notify_errors": "Activer les notifications d'erreur",
+          "btlg_api_daily_quota": "Quota d'API quotidien",
+          "smart_polling_enabled": "Économie d'énergie intelligente (Adaptatif)"
+        },
+        "description": "Configurez les paramètres avancés pour la stabilité de l'API et la gestion des quotas.",
+        "title": "Options Bticino Smarther"
+      }
+    }
+  },
+  "services": {
+    "set_boost_mode": {
+      "description": "Activer le mode BOOST",
+      "fields": {
+        "boost_time": {
+          "description": "Définir la durée du BOOST [30,60,90] min",
+          "name": "Temps BOOST"
+        },
+        "hvac_mode": {
+          "description": "Définir le mode CVC [CHAUFFAGE/REFROIDISSEMENT]",
+          "name": "Mode CVC"
+        }
+      },
+      "name": "Définir le mode BOOST"
+    },
+    "set_schedule": {
+      "description": "Définir la programmation",
+      "fields": {
+        "schedule_name": {
+          "description": "Nom de la programmation",
+          "name": "Nom de la Programmation"
+        }
+      },
+      "name": "Définir la programmation"
+    },
+    "set_temperature_with_end_datetime": {
+      "description": "Définir la température cible jusqu'à la date de fin spécifiée",
+      "fields": {
+        "end_datetime": {
+          "description": "Définir la date de fin",
+          "name": "Date de fin"
+        },
+        "hvac_mode": {
+          "description": "Définir le mode CVC [CHAUFFAGE/REFROIDISSEMENT]",
+          "name": "Mode CVC"
+        },
+        "target_temperature": {
+          "description": "Définir la température cible",
+          "name": "Température cible"
+        }
+      },
+      "name": "Définir température avec date de fin"
+    },
+    "set_temperature_with_time_period": {
+      "description": "Définir la température cible pour la période spécifiée",
+      "fields": {
+        "hvac_mode": {
+          "description": "Définir le mode CVC [CHAUFFAGE/REFROIDISSEMENT]",
+          "name": "Mode CVC"
+        },
+        "target_temperature": {
+          "description": "Définir la température cible",
+          "name": "Température Cible"
+        },
+        "time_period": {
+          "description": "Définir la période",
+          "name": "Période"
+        }
+      },
+      "name": "Définir température avec période"
+    },
+    "set_turn_off_with_end_datetime": {
+      "description": "Éteindre le thermostat jusqu'à la date de fin spécifiée",
+      "fields": {
+        "end_datetime": {
+          "description": "Définir la date de fin",
+          "name": "Date de fin"
+        }
+      },
+      "name": "Éteindre thermostat avec date de fin"
+    },
+    "set_turn_off_with_time_period": {
+      "description": "Éteindre le thermostat pour la période spécifiée",
+      "fields": {
+        "time_period": {
+          "description": "Définir la période",
+          "name": "Période"
+        }
+      },
+      "name": "Éteindre thermostat avec période"
+    }
+  }
+}
