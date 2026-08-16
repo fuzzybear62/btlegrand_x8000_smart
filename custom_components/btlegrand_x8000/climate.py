@@ -276,8 +276,13 @@ class BticinoX8000Climate(CoordinatorEntity, ClimateEntity):
             await self.coordinator.api.set_chronothermostat_status(
                 self._plant_id, self._topology_id, payload
             )
-            
+
             self._last_command_success = True
+
+            # Patch the coordinator cache so the re-parse triggered by
+            # notify_listeners_only() (below) reads the NEW state, not the stale
+            # one — otherwise it would clobber this optimistic update.
+            self.coordinator.apply_optimistic(self._topology_id, payload)
 
             # Optimistic State Update
             self._attr_hvac_mode = hvac_mode
@@ -336,6 +341,12 @@ class BticinoX8000Climate(CoordinatorEntity, ClimateEntity):
             )
 
             self._last_command_success = True
+
+            # Patch the coordinator cache so the re-parse triggered by
+            # notify_listeners_only() (below) reads the NEW setPoint, not the
+            # stale one — otherwise it would clobber this optimistic update and
+            # the UI would snap back to the old temperature.
+            self.coordinator.apply_optimistic(self._topology_id, payload)
 
             # Optimistic State Update
             self._attr_target_temperature = temp
@@ -425,8 +436,13 @@ class BticinoX8000Climate(CoordinatorEntity, ClimateEntity):
             await self.coordinator.api.set_chronothermostat_status(
                 self._plant_id, self._topology_id, payload
             )
-            
+
             self._last_command_success = True
+
+            # Patch the coordinator cache so the re-parse triggered by
+            # notify_listeners_only() (below) reads the NEW mode/program, not the
+            # stale one — otherwise it would clobber this optimistic update.
+            self.coordinator.apply_optimistic(self._topology_id, payload)
 
             # Optimistic Update
             self._attr_preset_mode = preset_mode

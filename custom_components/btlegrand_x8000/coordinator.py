@@ -459,12 +459,27 @@ class BticinoCoordinator(DataUpdateCoordinator):
     def notify_listeners_only(self) -> None:
         """
         Notify listeners (sensors) that internal state/counters changed without fetching API.
-        
+
         This is useful for updating diagnostic sensors (like API call counters)
         immediately after a write operation, without waiting for the next poll.
         """
         # Triggers the _handle_coordinator_update method on all registered entities
         self.async_update_listeners()
+
+    def apply_optimistic(self, topology_id: str, patch: dict[str, Any]) -> None:
+        """Merge an optimistic patch into the cached device state.
+
+        After a successful command the cached cloud state we hold is still the
+        PRE-command state. Without this, the immediate ``notify_listeners_only()``
+        re-parse would read that stale ``setPoint``/``mode`` and overwrite the
+        entity's optimistic value, so the UI snaps back to the old temperature
+        until a real poll/webhook lands. Merging the command's own fields keeps
+        the cache consistent until the next poll or the free webhook reconciles
+        it against the cloud.
+        """
+        if not self.data or topology_id not in self.data:
+            return
+        self.data[topology_id].update(patch)
 
     @property
     def skipped_count(self) -> int:
