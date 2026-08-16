@@ -23,7 +23,7 @@
 #     sensor.btlegrand_service_polling_tier          (enum: disabled/normal/economy/survival/frozen)
 #     sensor.btlegrand_service_smart_polling_skips   (total_increasing)
 #     number.btlegrand_service_daily_api_quota       (tunable quota)
-#     sensor.btlegrand_api_budget_pct                (helper, from templates file)
+#     sensor.btlegrand_api_budget_used               (helper, from templates file)
 #     sensor.btlegrand_api_projected_used            (helper, from templates file)
 #   PER-DEVICE (one per thermostat), used in the stacked chart:
 #     sensor.<thermostat>_api_usage
@@ -52,7 +52,7 @@ cards:
       show_states: true
     chart_type: radialBar
     series:
-      - entity: sensor.btlegrand_api_budget_pct
+      - entity: sensor.btlegrand_api_budget_used
         name: Usato
         min: 0
         max: 100

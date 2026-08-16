@@ -19,7 +19,7 @@ template:
   - sensor:
       # % of today's quota already consumed (0..100+). Drives the "Budget oggi" gauge.
       - name: "BtLegrand API Budget Used"
-        unique_id: btlegrand_api_budget_pct
+        unique_id: btlegrand_api_budget_used
         unit_of_measurement: "%"
         state_class: measurement
         icon: mdi:gauge
@@ -30,7 +30,7 @@ template:
 
       # % of quota we are PROJECTED to reach by midnight (0..100+, >100 = over budget).
       - name: "BtLegrand API Projected Used"
-        unique_id: btlegrand_projected_pct
+        unique_id: btlegrand_api_projected_used
         unit_of_measurement: "%"
         state_class: measurement
         icon: mdi:chart-line
