@@ -69,7 +69,7 @@ MAX_PASSIVE_MULTIPLIER = 12      # 12 = extreme slow-down for dormant zones
 #
 # Tier thresholds, expressed as a fraction of the daily quota. Below the
 # fraction the corresponding (slower) tier engages. Example at quota 500:
-# economy < 100, survival < 40, frozen < 10.
+# economy < 100, survival < 40, frozen < 5 (frozen is floored at min(5, 2%)).
 ECONOMY_BUDGET_FRACTION = 0.20    # < 20% of quota -> economy tier
 SURVIVAL_BUDGET_FRACTION = 0.08   # < 8%  of quota -> survival tier
 FROZEN_BUDGET_FRACTION = 0.02     # < 2%  of quota -> freeze scheduled polling

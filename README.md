@@ -145,6 +145,75 @@ the running coordinator and persist to the config entry) — no reload needed.
 
 > **Rule of thumb.** *Fewer calls:* raise **Update Interval** and/or **Passive Zone Multiplier**, or lower **Daily API Quota** (throttling engages sooner). *More responsive:* lower both. `Smart Energy Saving = OFF` ignores both axes and polls every device at the fixed **Update Interval**.
 
+#### Parameter reference (in depth)
+
+Each knob below lists **what it does**, **how to think about it**, and a **worked
+example**. All are live: editing the Number/Switch entity takes effect on the *next*
+poll cycle — no reload.
+
+**Update Interval** — `number`, default **15 min**, range **1–120 min**.
+The base cadence at which an *active* zone (Manual / Boost / Automatic) is polled.
+This is the single biggest lever on both responsiveness and daily call volume: every
+other interval in the system is derived from it (passive zones, and all the budget
+tiers, are multiples of this value).
+> *Example.* One active thermostat at 15 min = 4 calls/hour = up to **96 calls/day**.
+> Raise it to 30 min and that halves to **48 calls/day** at the cost of state that can
+> be up to 30 min stale between webhook pushes. With webhooks working, real setpoint
+> changes still arrive instantly regardless of this value — the interval only bounds
+> how long a *missed* push can go unnoticed.
+
+**Passive Zone Multiplier** — `number`, default **4×**, range **1–12**.
+How much *slower* a passive zone (Off / Protection anti-frost) is polled compared to
+an active one. A passive zone rarely changes on its own, so it doesn't need the full
+cadence. Effective passive interval = `Update Interval × this`.
+> *Example.* At the defaults a passive zone is polled every `15 × 4 = 60 min`
+> (~24 calls/day instead of ~96 — about **75% fewer** on that zone). Set it to `1` to
+> treat Off/anti-frost zones exactly like active ones (useful if you frequently flip
+> them from the app and want them tracked tightly); set it to `12` for a summer-idle
+> radiator you almost never touch (`15 × 12 = 180 min`, ~8 calls/day).
+
+**Smart Energy Saving** — `switch`, default **ON**.
+The master switch for *both* adaptive axes: per-device active/passive classification
+**and** the budget safety net. Turn it **off** and every selected thermostat is polled
+uniformly at the flat **Update Interval**, ignoring mode and ignoring remaining quota.
+> *Example.* 5 thermostats, 3 of them Off. *On:* 2 active @15 min + 3 passive @60 min
+> ≈ `2×96 + 3×24 = 264` calls/day. *Off:* all 5 @15 min ≈ `5×96 = 480` calls/day — and
+> no throttle to stop it overrunning a 500 quota. Leave it on unless you are debugging.
+
+**Daily API Quota** — `number`, default **500**, range **100–10000**.
+Your Legrand account's real daily call ceiling — **not** a limit the integration
+imposes, but the number it *budgets against*. It's the denominator for every budget
+tier (Economy < 20%, Survival < 8%, Frozen < 2%) and for **Projected Daily Calls**.
+Set it to your account's actual limit; the Starter Kit is **500/day**.
+> *Example.* At quota 500 the tiers fire at 100 / 40 / 5 calls remaining (the Frozen
+> floor is `min(5, 2%)`, so it's a flat 5 here). Raise it to 1000 (a larger plan) and
+> Economy/Survival now fire at 200 / 80 while Frozen stays at 5, so throttling engages
+> later and you get more responsiveness for the same safety margin. Setting it *lower*
+> than your true limit is a valid way to stay conservative.
+
+**Cool Down Interval** — `number`, default **60 min**, range **15–180 min**.
+After a rate-limit (`429`) or auth failure the integration goes dormant for this long
+before probing again, so a temporary ban isn't extended by continued hammering.
+> *Example.* A `429` at 14:00 with the default → no calls until 15:00, then one probe;
+> on success normal polling resumes. Shorten it (e.g. 15 min) only if your account's
+> bans are short; the Legrand cloud tends to punish repeated early retries, so the
+> 60 min default is deliberately cautious.
+
+**Notify Errors** — `switch`, default **ON**.
+When on, entering cool-down raises a **persistent notification** in the HA sidebar and
+fires a `btlegrand_x8000_event` (`type: rate_limit_exceeded`) on the event bus, which
+you can hang an automation off. Turn it off for a silent, self-healing recovery.
+> *Example.* Keep it on to get pinged the first time your quota is too low for your
+> setup; automate on the bus event to, say, flash a light or send a phone notification.
+
+**Webhook Debounce** — `number`, default **1.0 s**, range **0.5–5.0 s**.
+A coalescing window for bursts of push events. Sliding the temperature on the device's
+touch bar emits many webhooks in a second; this groups them so the entity updates once
+they settle, instead of flickering through every intermediate value.
+> *Example.* Dragging 19.0 → 21.5 °C might fire 8 pushes in ~0.8 s. With the 1.0 s
+> window the entity lands once on 21.5 °C. Raise it toward 5 s only if you see
+> flickering; lower it toward 0.5 s for snappier single taps.
+
 ### Reconfiguring after install
 
 Three install-time choices can be changed in place — without removing and
@@ -354,19 +423,57 @@ Under the singleton *"BtLegrand Service"* device:
 
 ## Diagnostics
 
-- **API Call Count (Global)** — total calls made today; resets at local midnight. The
-  count is persisted to `.storage/bticino_x8000.api_usage` so it survives restarts.
-- **API Usage (Per Device)** — how many of those calls targeted each thermostat.
-- **Smart Polling Skips** — how many polls the optimizer avoided. A higher number
-  means higher efficiency.
-- **Polling Tier** — the throttle state right now (`disabled` / `normal` / `economy` /
-  `survival` / `frozen`). Its attributes expose the exact active/passive intervals
-  being enforced and the remaining budget, so the adaptive behaviour is observable.
-- **Projected Daily Calls** — today's usage extrapolated to midnight. If it stays
-  **below** the Daily API Quota, smart polling is doing its job; a value above the
-  quota (attribute `over_budget: true`) means the current pace is too fast. This is
-  the single best gauge of real effectiveness. *(Reports the raw count during the
-  first hour of the day, when extrapolation would be too noisy.)*
+Five diagnostic sensors let you *see* the adaptive machinery working instead of
+trusting it blindly. Read them together: **Projected Daily Calls** answers "will I
+overshoot?", **Polling Tier** answers "am I being throttled right now, and how hard?",
+and the three counters explain "where did today's calls go?".
+
+**API Call Count (Global)** — `sensor`, unit `calls`, state class `total_increasing`.
+The running total of API calls made today across every device. Resets to `0` at local
+midnight and is persisted to `.storage/bticino_x8000.api_usage`, so it survives
+restarts (a mid-day HA restart does **not** re-arm your whole quota). This is the raw
+`calls_used` that the budget net subtracts from **Daily API Quota**.
+> *Example.* Reading `264` at 18:00 against a 500 quota means 236 calls of headroom
+> left for the evening — comfortable. The same `264` at 10:00 would be a warning sign
+> (see Projected Daily Calls).
+
+**API Usage (Per Device)** — `sensor` (one per thermostat), unit `calls`.
+How many of the global calls targeted *this specific* thermostat today. The per-device
+breakdown is what makes an over-budget day diagnosable.
+> *Example.* If the global count is high and one bedroom device shows `96` while the
+> others show `24`, that bedroom is stuck *active* (someone left it in Manual) — either
+> that's intended, or bumping the **Passive Zone Multiplier** / switching it Off will
+> reclaim ~72 calls/day.
+
+**Smart Polling Skips** — `sensor`, unit `skips`, state class `total_increasing`.
+A running tally of poll cycles the optimizer *chose not to make* — because a passive
+zone wasn't due yet, or because the Frozen tier paused scheduled polling. It's the
+direct measure of how much work smart polling saved you; a rising number is good.
+> *Example.* 3 passive zones on the default 4× each skip 3 of every 4 cycles, so over
+> a day this climbs by a few hundred. If it's stuck near `0`, either all zones are
+> active or **Smart Energy Saving** is off — you're paying full price.
+
+**Polling Tier** — `sensor` (enum), states `disabled` / `normal` / `economy` /
+`survival` / `frozen`. The throttle state *this cycle*. Attributes expose the exact
+cadence being enforced so the behaviour is observable, not guessed:
+`active_interval_min`, `passive_interval_min`, `passive_multiplier`, `remaining_calls`.
+> *Example.* `normal` with `active_interval_min: 15, passive_interval_min: 60` is the
+> healthy resting state. Seeing `economy` (`active 30 / passive 120`) mid-afternoon
+> means budget dropped under 20% *and* your pace was projected to overshoot. `frozen`
+> means scheduled polling is paused until midnight and you're coasting on webhooks —
+> data still updates on real changes, it just won't self-poll.
+
+**Projected Daily Calls** — `sensor`, unit `calls`, state class `measurement`.
+Today's usage extrapolated to midnight: `calls_used ÷ fraction_of_day_elapsed`. This
+is the **single best gauge of real effectiveness** and the input to the pacing veto.
+Attributes: `daily_quota`, `over_budget` (`true` when the projection exceeds the
+quota). During roughly the first hour of the day it reports the raw count instead,
+because dividing by a tiny elapsed-fraction would be wildly noisy.
+> *Example.* `264` used at 18:00 = 0.75 of the day → projected `264 ÷ 0.75 = 352`.
+> That's under the 500 quota (`over_budget: false`), so the pacing veto keeps you at
+> **normal** cadence even as raw budget shrinks. If instead you'd burned `264` by
+> 10:00 (0.42 of day) → projected `≈ 629` (`over_budget: true`): the current pace
+> *would* overshoot, so the throttle is allowed to engage.
 
 Raw device payloads are exposed via each entity's `extra_state_attributes` **only
 when the integration logger is at `DEBUG`** — they are debug aids, not normal state.
