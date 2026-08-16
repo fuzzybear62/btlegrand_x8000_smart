@@ -3,8 +3,9 @@
 import asyncio
 import json
 import logging
+from enum import Enum
 from typing import Any
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import aiohttp
 from homeassistant.core import HomeAssistant
@@ -12,7 +13,11 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.storage import Store
 from homeassistant.util import dt as dt_util
 
-from .auth import refresh_access_token
+from .auth import (
+    TokenInvalidGrantError,
+    TokenTransientError,
+    refresh_access_token,
+)
 from .const import (
     DEFAULT_API_BASE_URL,
     PLANTS,
@@ -31,6 +36,25 @@ MAX_CONCURRENT_REQUESTS = 1
 HTTP_TIMEOUT_TOTAL = 20
 HTTP_TIMEOUT_CONNECT = 10
 
+# Proactive token refresh: renew the access token this many seconds before it
+# actually expires. Absorbs host-clock skew and in-flight latency, and — because
+# the token TTL is ~1h — avoids the counted 401 a lazy (reactive) refresh pays
+# on the first request after every expiry.
+TOKEN_REFRESH_MARGIN = 120
+
+
+def _coerce_datetime(value):
+    """Return a tz-aware datetime from a datetime or ISO string, else None.
+
+    The stored ``access_token_expires_on`` is a datetime on a fresh setup but an
+    ISO string once reloaded from the config-entry storage; accept both.
+    """
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value
+    return dt_util.parse_datetime(value)
+
 # STORAGE CONSTANTS
 # 
 STORAGE_KEY = f"{DOMAIN}.api_usage"
@@ -47,6 +71,36 @@ class RateLimitError(BticinoApiError):
 class AuthError(BticinoApiError):
     """Raised when authentication fails or token cannot be refreshed."""
 
+
+class AuthBrokenError(AuthError):
+    """Auth is permanently broken (dead refresh token): re-auth required.
+
+    The coordinator maps this to ``ConfigEntryAuthFailed`` so Home Assistant
+    prompts the user to re-authenticate instead of retrying forever.
+    """
+
+
+class AuthRetryableError(AuthError):
+    """Auth failed transiently (auth-server blip): retry on the next cycle.
+
+    The coordinator maps this to ``UpdateFailed`` and does NOT mark auth broken.
+    """
+
+
+class _RefreshResult(Enum):
+    """Outcome of a token-refresh attempt, so the 401 handler can react.
+
+    REFRESHED -> retry the request with the new token.
+    TRANSIENT -> auth server hiccup; credentials still presumed valid, fail this
+                 request only and let the next scheduled poll try again.
+    BROKEN    -> credentials are dead; mark auth broken and require re-auth.
+    """
+
+    REFRESHED = "refreshed"
+    TRANSIENT = "transient"
+    BROKEN = "broken"
+
+
 class BticinoX8000Api:
     """Legrand API class with Rate Limiting, Backoff, Shared Session and Persistence."""
 
@@ -62,6 +116,15 @@ class BticinoX8000Api:
         self._token_refresh_lock = asyncio.Lock()
         self._api_semaphore = asyncio.Semaphore(MAX_CONCURRENT_REQUESTS)
         self.auth_broken = False
+
+        # Proactive refresh state: when the current access token expires, so we
+        # can renew it before a request would 401. May start as a datetime (fresh
+        # setup) or an ISO string (reloaded from storage) -> coerce to datetime.
+        self.token_expires_on = _coerce_datetime(
+            self.data.get("access_token_expires_on")
+        )
+        # Diagnostic counter: proactive renewals that pre-empted a 401.
+        self.proactive_refresh_count = 0
         
         # Diagnostic: Granular Stats for Telemetry
         # We now track a dictionary instead of a single integer.
@@ -78,9 +141,11 @@ class BticinoX8000Api:
         self.api_other_fail_count = 0
         self.last_call_time = None
         
-        # Persistence: Initialize Store and trigger load
+        # Persistence: Initialize Store. The stored stats are loaded by
+        # __init__.py (await async_load_usage_data()) BEFORE the first refresh,
+        # so the load cannot race with - and overwrite - counter increments made
+        # by the first update cycle.
         self._store = Store(hass, STORAGE_VERSION, STORAGE_KEY)
-        self.hass.async_create_task(self._load_usage_data())
 
         # Use Home Assistant's shared session
         self._session = async_get_clientsession(hass)
@@ -107,6 +172,10 @@ class BticinoX8000Api:
         self._check_midnight_reset()
         self.usage_stats["skips"] = self.usage_stats.get("skips", 0) + 1
         self._save_usage_data()
+
+    async def async_load_usage_data(self) -> None:
+        """Public entry point: load persisted usage stats before first refresh."""
+        await self._load_usage_data()
 
     async def _load_usage_data(self) -> None:
         """Load API usage data from disk and reset if new day."""
@@ -200,13 +269,18 @@ class BticinoX8000Api:
         if self.auth_broken:
             _LOGGER.warning("Authentication previously broken. Skipping request to %s", url)
             self.api_auth_fail_count += 1
-            raise AuthError("Authentication is broken")
+            raise AuthBrokenError("Authentication is broken")
 
         # ACQUIRE SEMAPHORE (Serialize requests)
         async with self._api_semaphore:
             # Minimal pacing to avoid bursting even before the first request
             await asyncio.sleep(0.5)
-            
+
+            # Renew a near-expired token before spending a counted request on a
+            # guaranteed 401 (token TTL ~1h). The reactive 401 path below stays
+            # as the safety net for early / unexpected expiries.
+            await self._ensure_token_fresh()
+
             attempts = 0
             max_attempts = 3
             current_delay = API_DELAY_SECONDS
@@ -269,20 +343,27 @@ class BticinoX8000Api:
                                     # sent, another task already refreshed it while we
                                     # waited on the lock -> just retry with the new one.
                                     if self.header["Authorization"] != sent_token:
-                                         _LOGGER.debug("Token refreshed by another task. Retrying request.")
+                                        _LOGGER.debug("Token refreshed by another task. Retrying request.")
                                     else:
-                                        if await self._handle_token_refresh():
-                                            _LOGGER.info("Token refreshed and SAVED. Retrying request.")
-                                        else:
-                                            _LOGGER.error("Token refresh FAILED. Marking auth as broken.")
+                                        result = await self._handle_token_refresh()
+                                        if result is _RefreshResult.TRANSIENT:
+                                            # Auth server blip: token/refresh_token
+                                            # still presumed valid, so do NOT brick
+                                            # the client. Fail just this request; the
+                                            # next scheduled poll retries.
+                                            self.api_auth_fail_count += 1
+                                            raise AuthRetryableError("Token refresh temporarily unavailable")
+                                        if result is _RefreshResult.BROKEN:
+                                            _LOGGER.error("Token refresh failed. Marking auth as broken.")
                                             self.auth_broken = True
                                             self.api_auth_fail_count += 1
-                                            raise AuthError("Token refresh failed")
+                                            raise AuthBrokenError("Token refresh failed")
+                                        _LOGGER.info("Token refreshed and SAVED. Retrying request.")
                                 continue
                             else:
                                 _LOGGER.error("401 Loop detected. Stop retrying.")
                                 self.api_auth_fail_count += 1
-                                raise AuthError("Unauthorized - Retry limit reached")
+                                raise AuthBrokenError("Unauthorized - Retry limit reached")
                         
                         # CASE 3: RATE LIMIT (429) - FATAL IMMEDIATE STOP
                         if status_code == 429:
@@ -328,30 +409,94 @@ class BticinoX8000Api:
             self.api_other_fail_count += 1
             raise BticinoApiError("Request failed - Unknown loop exit")
 
-    async def _handle_token_refresh(self) -> bool:
-        """Handle token refresh and PERSIST it to disk."""
+    async def _ensure_token_fresh(self) -> None:
+        """Proactively refresh the access token if it is within the expiry margin.
+
+        Runs before a request is sent so we don't spend a counted 401 on the
+        first call after the ~1h token expiry. Uncounted (hits the auth endpoint,
+        not the API). No-op when the expiry is unknown (legacy entry) — the
+        reactive 401 path then handles it as before.
+        """
+        margin = timedelta(seconds=TOKEN_REFRESH_MARGIN)
+
+        if self.token_expires_on is None:
+            return
+        if dt_util.utcnow() < self.token_expires_on - margin:
+            return
+
+        async with self._token_refresh_lock:
+            # Re-check under the lock: another task may have refreshed while we
+            # were waiting for it.
+            if (
+                self.token_expires_on is not None
+                and dt_util.utcnow() < self.token_expires_on - margin
+            ):
+                return
+
+            _LOGGER.debug(
+                "Access token near expiry (%s); refreshing proactively.",
+                self.token_expires_on,
+            )
+            result = await self._handle_token_refresh()
+            if result is _RefreshResult.REFRESHED:
+                self.proactive_refresh_count += 1
+            elif result is _RefreshResult.BROKEN:
+                self.auth_broken = True
+                self.api_auth_fail_count += 1
+                raise AuthBrokenError("Proactive token refresh failed permanently")
+            # TRANSIENT: keep the current token; the request proceeds and, if the
+            # token really is expired, the reactive 401 path retries next cycle.
+
+    async def _handle_token_refresh(self) -> _RefreshResult:
+        """Refresh the token and persist it, classifying any failure.
+
+        A 4xx (dead refresh token) is permanent -> BROKEN. A transient auth-server
+        outage (5xx / network) is retriable -> TRANSIENT, so a passing blip no
+        longer bricks the client until the integration is reloaded.
+        """
         try:
             # Pass self.hass to use the shared session in auth.py
-            access_token, refresh_token, _ = await refresh_access_token(self.hass, self.data)
-            
+            access_token, refresh_token, expires_on = await refresh_access_token(
+                self.hass, self.data
+            )
+
             self.data["access_token"] = access_token
             self.data["refresh_token"] = refresh_token
+            self.data["access_token_expires_on"] = expires_on
             self.header["Authorization"] = access_token
-            
+            # Feed the proactive-refresh scheduler with the new expiry.
+            self.token_expires_on = expires_on
+
             entries = self.hass.config_entries.async_entries(DOMAIN)
             for entry in entries:
                 if entry.data.get("client_id") == self.data.get("client_id"):
                     self.hass.config_entries.async_update_entry(
-                        entry, 
-                        data={**entry.data, "access_token": access_token, "refresh_token": refresh_token}
+                        entry,
+                        data={
+                            **entry.data,
+                            "access_token": access_token,
+                            "refresh_token": refresh_token,
+                            "access_token_expires_on": expires_on,
+                        }
                     )
                     _LOGGER.debug("Persisted refreshed token to ConfigEntry storage.")
                     break
-            
-            return True
-        except Exception as e:
-            _LOGGER.error("Fatal error refreshing token: %s", e)
-            return False
+
+            return _RefreshResult.REFRESHED
+        except TokenTransientError as e:
+            _LOGGER.warning(
+                "Token refresh hit a transient auth-server error; will retry "
+                "next cycle without re-auth: %s", e
+            )
+            return _RefreshResult.TRANSIENT
+        except TokenInvalidGrantError as e:
+            _LOGGER.error("Token refresh rejected (refresh token dead?): %s", e)
+            return _RefreshResult.BROKEN
+        except Exception as e:  # pylint: disable=broad-exception-caught
+            # Unexpected (e.g. corrupt config): safest to force re-auth rather
+            # than loop forever on a bug.
+            _LOGGER.error("Unexpected error refreshing token: %s", e)
+            return _RefreshResult.BROKEN
 
     # --- Public Methods ---
 

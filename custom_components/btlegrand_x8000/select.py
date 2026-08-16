@@ -1,6 +1,7 @@
 """Select entities for Bticino X8000 using DataUpdateCoordinator."""
 
 import logging
+from datetime import timedelta
 from typing import Any
 
 from homeassistant.components.select import SelectEntity
@@ -231,7 +232,7 @@ class BticinoBoostSelect(BticinoBaseSelect):
         else:
             # Activate Boost
             now = dt_util.now()
-            end_time = now + dt_util.timedelta(minutes=int(option))
+            end_time = now + timedelta(minutes=int(option))
             
             now_str = now.strftime("%Y-%m-%dT%H:%M:%S")
             end_str = end_time.strftime("%Y-%m-%dT%H:%M:%S")

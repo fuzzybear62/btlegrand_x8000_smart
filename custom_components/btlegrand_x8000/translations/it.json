@@ -133,6 +133,15 @@
         "description": "Rinnova le credenziali del portale Legrand Developer. I valori attuali sono pre-compilati: modifica quelli cambiati. Dopo l'invio ti verrà chiesto di autorizzare di nuovo nel browser (gli stessi passi del primo setup) per ottenere token freschi.\n\nL'URL esterno e i termostati selezionati vengono mantenuti. L'integrazione continua a funzionare con le credenziali attuali finché le nuove non sono validate.",
         "title": "Legrand/Bticino Smarther - Rinnova Credenziali"
       },
+      "reauth_confirm": {
+        "data": {
+          "client_id": "ID Client",
+          "client_secret": "Segreto del Client",
+          "subscription_key": "Chiave di Sottoscrizione"
+        },
+        "description": "L'autenticazione con Legrand è scaduta e non è stato possibile rinnovarla automaticamente (il token memorizzato non è più valido). Le credenziali attuali sono pre-compilate: modifica quelle cambiate. Dopo l'invio ti verrà chiesto di autorizzare di nuovo nel browser per ottenere token freschi.\n\nL'URL esterno e i termostati selezionati vengono mantenuti.",
+        "title": "Legrand/Bticino Smarther - Ri-autenticazione"
+      },
       "select_thermostats": {
         "data": {
           "select_thermostats": "Seleziona i termostati da aggiungere"

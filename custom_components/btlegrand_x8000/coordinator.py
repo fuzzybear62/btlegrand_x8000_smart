@@ -6,13 +6,22 @@ from typing import Any
 from time import monotonic  # Added for debounce logic
 
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
+from homeassistant.exceptions import ConfigEntryAuthFailed
 # Import for direct notifications to ensure visibility during boot
 from homeassistant.components import persistent_notification
 from homeassistant.util import dt as dt_util  # Added for diagnostic timestamps
 
-from .api import BticinoX8000Api, RateLimitError, AuthError, BticinoApiError
+from .api import (
+    BticinoX8000Api,
+    RateLimitError,
+    AuthError,
+    AuthBrokenError,
+    AuthRetryableError,
+    BticinoApiError,
+    _RefreshResult,
+)
 from .const import (
     DOMAIN,
     CONF_UPDATE_INTERVAL,
@@ -125,6 +134,12 @@ class BticinoCoordinator(DataUpdateCoordinator):
         # Debounce and Diagnostics initialization
         self._last_webhook_mono = 0.0
         self._last_webhook_time = None
+        # Trailing-edge debounce: the latest payload seen during a burst and the
+        # pending flush handle. Guarantees the FINAL state of a burst is applied
+        # (leading-edge-only dropping left the coordinator on stale intermediate
+        # state until the next scheduled poll).
+        self._pending_webhook_data: dict[str, Any] | None = None
+        self._webhook_flush_handle = None
         
         # Track when each specific thermostat was last updated (for Smart Polling)
         self._last_update_time: dict[str, Any] = {}
@@ -159,7 +174,9 @@ class BticinoCoordinator(DataUpdateCoordinator):
         # Check if authentication is known to be broken from previous attempts.
         if self.api.auth_broken:
             _LOGGER.error("Auth is broken. Aborting update cycle.")
-            raise UpdateFailed("Authentication broken")
+            # auth_broken is only set on a permanent failure (dead refresh token),
+            # so surface it as a reauth request rather than a transient UpdateFailed.
+            raise ConfigEntryAuthFailed("Authentication broken")
 
         # --- BUDGET SAFETY NET (Stateless Budget Awareness) ---
         # Derive dynamic intervals from the remaining daily quota. The tiers and
@@ -257,7 +274,7 @@ class BticinoCoordinator(DataUpdateCoordinator):
                 # FAIL FAST CHECK 2:
                 # Double check inside the loop in case auth broke during the previous iteration.
                 if self.api.auth_broken:
-                    raise UpdateFailed("Authentication broke during update")
+                    raise ConfigEntryAuthFailed("Authentication broke during update")
 
                 # --- SMART ENERGY SAVING LOGIC ---
                 should_update = True
@@ -347,11 +364,30 @@ class BticinoCoordinator(DataUpdateCoordinator):
                     # Dedicated handler for our custom RateLimitError exception
                     self._trigger_rate_limit_abort(plant_id, topology_id, str(err))
 
-                except AuthError as err:
-                    _LOGGER.error("Authentication error on %s: %s. Aborting updates.", topology_id, err)
-                    # Explicitly flag auth as broken to prevent future retries until restart
+                except AuthRetryableError as err:
+                    # Transient auth-server blip. The stored token/refresh_token are
+                    # presumed still valid, so do NOT set auth_broken and do NOT ask
+                    # for reauth: fail just this cycle and let the next poll retry.
+                    _LOGGER.warning(
+                        "Transient auth error on %s: %s. Retrying next cycle.",
+                        topology_id, err,
+                    )
+                    raise UpdateFailed(f"Auth temporarily unavailable: {err}")
+
+                except AuthBrokenError as err:
+                    # Permanent failure (dead refresh token). api.py already set
+                    # auth_broken. Surface a reauth request so HA prompts the user
+                    # to re-link the account instead of silently retrying forever.
+                    _LOGGER.error("Authentication broken on %s: %s. Requesting reauth.", topology_id, err)
                     self.api.auth_broken = True
-                    raise UpdateFailed(f"Auth Error: {err}")
+                    raise ConfigEntryAuthFailed(f"Auth broken: {err}")
+
+                except AuthError as err:
+                    # Defensive fallback for any untyped AuthError: treat as broken
+                    # (safer to prompt reauth than to loop on a bad token).
+                    _LOGGER.error("Authentication error on %s: %s. Requesting reauth.", topology_id, err)
+                    self.api.auth_broken = True
+                    raise ConfigEntryAuthFailed(f"Auth Error: {err}")
 
                 except BticinoApiError as err:
                     _LOGGER.error("API Error on %s: %s", topology_id, err)
@@ -376,7 +412,17 @@ class BticinoCoordinator(DataUpdateCoordinator):
                     
                     # Catch-all for truly unexpected crashes to prevent the loop from dying silently
                     _LOGGER.exception("Unexpected exception updating %s", topology_id)
-        
+
+                # PRESERVE LAST-KNOWN STATE: if this device produced no fresh data
+                # this cycle (a per-device BticinoApiError or an unexpected
+                # exception that logged-and-continued), fall back to the previous
+                # value so the entity keeps its last reading instead of flipping to
+                # 'Unavailable' over a transient single-device glitch. The skip and
+                # success paths already populate data[topology_id]; this only fills
+                # the gap left by the log-and-continue error branches.
+                if topology_id not in data and self.data and topology_id in self.data:
+                    data[topology_id] = self.data[topology_id]
+
         if not data:
             # Debug level to avoid noise during known outages
             _LOGGER.debug("Update cycle finished but no data was retrieved.")
@@ -447,14 +493,19 @@ class BticinoCoordinator(DataUpdateCoordinator):
         This is useful if the token seems valid but the API is rejecting requests.
         """
         _LOGGER.info("Forcing manual token refresh requested by user.")
-        # We call the internal method in api.py
-        success = await self.api._handle_token_refresh()
-        if success:
+        # _handle_token_refresh returns a _RefreshResult enum, NOT a bool: every
+        # enum member is truthy, so `if result:` would report success even on a
+        # BROKEN/TRANSIENT outcome. Compare explicitly against REFRESHED.
+        result = await self.api._handle_token_refresh()
+        if result is _RefreshResult.REFRESHED:
             _LOGGER.info("Manual token refresh successful.")
-            # Reset broken flag just in case
+            # A genuine refresh proves auth is healthy again; clear the flag.
             self.api.auth_broken = False
-        else:
-            _LOGGER.error("Manual token refresh failed.")
+        elif result is _RefreshResult.BROKEN:
+            _LOGGER.error("Manual token refresh failed permanently (reauth needed).")
+            self.api.auth_broken = True
+        else:  # TRANSIENT
+            _LOGGER.warning("Manual token refresh temporarily unavailable; try again later.")
 
     def notify_listeners_only(self) -> None:
         """
@@ -515,22 +566,60 @@ class BticinoCoordinator(DataUpdateCoordinator):
 
     def update_from_webhook(self, webhook_data: dict[str, Any]) -> None:
         """
-        Update internal data from webhook payload defensively.
-        
-        Improvements:
-        1. Debounce: Prevents flooding if multiple webhooks arrive in < 1s.
-        2. Hybrid Lookup: Flattens plant_map for O(1) checks.
-        3. Diagnostics: Tracks last successful update time.
-        """
-        # 1. Debounce Check
-        # If webhooks arrive too fast (e.g., burst of slider movements), ignore them to save CPU.
-        now = monotonic()
-        # Use dynamic debounce time from configuration
-        if now - self._last_webhook_mono < self.debounce_time: 
-            _LOGGER.debug("Webhook ignored (debounce active)")
-            return
-        self._last_webhook_mono = now
+        Update internal data from webhook payload with leading+trailing debounce.
 
+        Bursts (e.g. a slider dragged, or a rapid sequence of C2C pushes) are
+        coalesced: the FIRST payload is applied immediately (leading edge, keeps
+        the UI responsive) and the LAST payload of the burst is applied once the
+        quiet window elapses (trailing edge). A leading-edge-only filter dropped
+        every payload after the first - including the final one carrying the
+        settled state - leaving the coordinator on stale intermediate data until
+        the next scheduled poll.
+        """
+        now = monotonic()
+        if now - self._last_webhook_mono >= self.debounce_time:
+            # Leading edge: quiet long enough, apply right away.
+            self._last_webhook_mono = now
+            self._cancel_webhook_flush()
+            self._pending_webhook_data = None
+            self._process_webhook(webhook_data)
+            return
+
+        # Inside the quiet window: remember the latest payload and (re)arm a
+        # single trailing flush so the burst's final state still lands.
+        self._pending_webhook_data = webhook_data
+        _LOGGER.debug("Webhook debounced; trailing flush pending")
+        if self._webhook_flush_handle is None:
+            delay = max(0.0, self.debounce_time - (now - self._last_webhook_mono))
+            self._webhook_flush_handle = self.hass.loop.call_later(
+                delay, self._flush_pending_webhook
+            )
+
+    def _cancel_webhook_flush(self) -> None:
+        """Cancel a pending trailing-edge flush, if any."""
+        if self._webhook_flush_handle is not None:
+            self._webhook_flush_handle.cancel()
+            self._webhook_flush_handle = None
+
+    @callback
+    def _flush_pending_webhook(self) -> None:
+        """Apply the last payload buffered during a debounce burst (trailing edge)."""
+        self._webhook_flush_handle = None
+        pending = self._pending_webhook_data
+        self._pending_webhook_data = None
+        if pending is None:
+            return
+        self._last_webhook_mono = monotonic()
+        self._process_webhook(pending)
+
+    def _process_webhook(self, webhook_data: dict[str, Any]) -> None:
+        """
+        Apply a single webhook payload to internal data defensively.
+
+        Improvements:
+        1. Hybrid Lookup: Flattens plant_map for O(1) checks.
+        2. Diagnostics: Tracks last successful update time.
+        """
         # 2. Validation
         if not isinstance(webhook_data, dict):
             _LOGGER.warning("Webhook payload is not a dictionary: %s", type(webhook_data))

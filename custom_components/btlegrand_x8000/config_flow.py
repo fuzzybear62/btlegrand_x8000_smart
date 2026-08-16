@@ -10,7 +10,6 @@ from urllib.parse import parse_qs, urlparse
 
 import voluptuous as vol
 from homeassistant import config_entries
-from homeassistant.components.webhook import async_generate_id as generate_id
 from homeassistant.helpers import selector
 
 from .api import BticinoX8000Api
@@ -183,6 +182,78 @@ class BticinoX8000ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             errors=errors,
         )
 
+    async def async_step_reauth(
+        self, entry_data: dict[str, Any]
+    ) -> config_entries.ConfigFlowResult:
+        """Entry point for HA-triggered re-authentication.
+
+        Home Assistant calls this when the coordinator raises
+        ``ConfigEntryAuthFailed`` (permanent auth failure: the stored refresh
+        token is dead). It presents the persistent "Reconfigure"/"Re-authenticate"
+        notification and, on user action, routes to ``reauth_confirm``.
+        """
+        return await self.async_step_reauth_confirm()
+
+    async def async_step_reauth_confirm(
+        self, user_input: dict[str, Any] | None = None
+    ) -> config_entries.ConfigFlowResult:
+        """Renew the Legrand credentials and re-run OAuth for the failing entry.
+
+        Mirrors ``reconfigure_credentials`` but is reached via HA's reauth
+        machinery. The credentials are pre-filled from the failing entry (a dead
+        refresh token often does not mean the client id/secret changed, so the
+        user can just re-authorize), and the finalization in
+        ``async_step_get_authorize_code`` updates the entry in place via
+        ``_reconfig_entry_id`` and reloads - which clears the reauth state.
+        """
+        entry = self.hass.config_entries.async_get_entry(self.context["entry_id"])
+        if entry is None:
+            return self.async_abort(reason="unknown")
+
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            for key, value in user_input.items():
+                if isinstance(value, str) and not value.strip():
+                    errors[key] = "value_empty"
+
+            if not errors:
+                # Flow-local only until validated; the live entry is untouched.
+                self._reconfig_entry_id = entry.entry_id
+                self.data = {
+                    **entry.data,
+                    "client_id": user_input["client_id"],
+                    "client_secret": user_input["client_secret"],
+                    "subscription_key": user_input["subscription_key"],
+                }
+                return self.async_show_form(
+                    step_id="get_authorize_code",
+                    data_schema=vol.Schema(
+                        {vol.Required("browser_url", default=""): str}
+                    ),
+                    description_placeholders={
+                        "auth_url": self.get_authorization_url(self.data),
+                    },
+                )
+
+        return self.async_show_form(
+            step_id="reauth_confirm",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(
+                        "client_id", default=entry.data.get("client_id", "")
+                    ): str,
+                    vol.Required(
+                        "client_secret", default=entry.data.get("client_secret", "")
+                    ): str,
+                    vol.Required(
+                        "subscription_key",
+                        default=entry.data.get("subscription_key", ""),
+                    ): str,
+                }
+            ),
+            errors=errors,
+        )
+
     async def async_step_reconfigure_devices(
         self, user_input: dict[str, Any] | None = None
     ) -> config_entries.ConfigFlowResult:
@@ -334,7 +405,6 @@ class BticinoX8000ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                             "id": data["id"],
                             "name": data["name"],
                             "programs": data["programs"],
-                            "webhook_id": generate_id(),
                         }
                     }
                 )
@@ -809,17 +879,14 @@ class BticinoX8000ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         # This properly maps the selected "Display Names" back to the full data objects
         # and groups them by plant_id as expected by the integration structure.
         
-        # Structure target: [ { plant_id: { id: ..., name: ..., programs: ..., webhook_id: ... } } ]
+        # Structure target: [ { plant_id: { id: ..., name: ..., programs: ... } } ]
         final_selection = []
-        
+
         for display_name in user_input["selected_thermostats"]:
             if display_name in self._selection_map:
                 thermo_data = self._selection_map[display_name]
                 plant_id = thermo_data.pop("plant_id") # Remove helper key
-                
-                # Add webhook ID
-                thermo_data["webhook_id"] = generate_id()
-                
+
                 final_selection.append({plant_id: thermo_data})
 
         return self.async_create_entry(

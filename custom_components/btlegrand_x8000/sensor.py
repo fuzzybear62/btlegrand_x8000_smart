@@ -116,6 +116,8 @@ async def async_setup_entry(
     # Smart-polling effectiveness diagnostics.
     entities.append(BticinoPollingTierSensor(coordinator))
     entities.append(BticinoProjectedCallsSensor(coordinator))
+    # Auth health: when the token expires / next proactive refresh is due.
+    entities.append(BticinoTokenExpirySensor(coordinator))
 
     _LOGGER.debug("Total entities to add: %d", len(entities))
 
@@ -622,6 +624,77 @@ class BticinoSkippedPollsSensor(CoordinatorEntity, SensorEntity):
         try:
             self.async_write_ha_state()
         except Exception:
+            pass
+
+    @callback
+    def _handle_coordinator_update(self) -> None:
+        """Standard update handler."""
+        self._async_handle_any_update()
+
+
+class BticinoTokenExpirySensor(CoordinatorEntity, SensorEntity):
+    """Diagnostic: absolute expiry of the current OAuth access token.
+
+    Exposes the instant the proactive-refresh logic watches: the token is
+    refreshed automatically once ``now`` is within ``TOKEN_REFRESH_MARGIN`` of
+    this value. Surfacing it lets the user (and automations) see token health
+    and confirm the auto-refresh is keeping the token ahead of expiry. Value is
+    ``None`` (Unknown) for legacy entries that predate expiry tracking.
+    """
+
+    _attr_icon = "mdi:key-chain"
+    _attr_name = "Token Expiry"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_device_class = SensorDeviceClass.TIMESTAMP
+    _attr_has_entity_name = True
+
+    def __init__(self, coordinator: BticinoCoordinator):
+        super().__init__(coordinator)
+        self._attr_unique_id = f"{DOMAIN}_token_expiry_{coordinator.entry.entry_id}"
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        """Link to the Cloud Service device."""
+        return DeviceInfo(
+            identifiers={(DOMAIN, self.coordinator.entry.entry_id)},
+            name="BtLegrand Service",
+            manufacturer="BtLegrand",
+            model="API Gateway",
+            entry_type=DeviceEntryType.SERVICE,
+        )
+
+    @property
+    def available(self) -> bool:
+        """Always available; reports Unknown when the expiry is not tracked."""
+        return True
+
+    @property
+    def native_value(self):
+        """Return the tz-aware expiry instant, or None if unknown."""
+        return getattr(self.coordinator.api, "token_expires_on", None)
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Expose the proactive-refresh counter for at-a-glance health."""
+        return {
+            "proactive_refresh_count": getattr(
+                self.coordinator.api, "proactive_refresh_count", 0
+            ),
+        }
+
+    async def async_added_to_hass(self) -> None:
+        """Register for ALL coordinator updates."""
+        await super().async_added_to_hass()
+        self.async_on_remove(
+            self.coordinator.async_add_listener(self._async_handle_any_update)
+        )
+
+    @callback
+    def _async_handle_any_update(self) -> None:
+        """Called on EVERY coordinator update attempt."""
+        try:
+            self.async_write_ha_state()
+        except Exception:  # pylint: disable=broad-exception-caught
             pass
 
     @callback

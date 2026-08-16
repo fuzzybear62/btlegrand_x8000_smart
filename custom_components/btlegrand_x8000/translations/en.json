@@ -51,6 +51,15 @@
         "description": "Renew the Legrand developer credentials. The current values are pre-filled - edit the ones that changed. After submitting you will be asked to authorize again in your browser (the same steps as first setup) to obtain fresh tokens.\n\nYour external URL and selected thermostats are preserved. The integration keeps running on the current credentials until the new ones are validated.",
         "title": "Legrand/Bticino Smarther - Renew Credentials"
       },
+      "reauth_confirm": {
+        "data": {
+          "client_id": "Client Id",
+          "client_secret": "Client Secret",
+          "subscription_key": "Subscription Key"
+        },
+        "description": "Authentication with Legrand has expired and could not be renewed automatically (the stored token is no longer valid). The current credentials are pre-filled - edit any that changed. After submitting you will be asked to authorize again in your browser to obtain fresh tokens.\n\nYour external URL and selected thermostats are preserved.",
+        "title": "Legrand/Bticino Smarther - Re-authenticate"
+      },
       "select_thermostats": {
         "data": {
           "select_thermostats": "Select the thermostats to add"

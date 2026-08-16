@@ -12,7 +12,7 @@ from homeassistant.exceptions import ConfigEntryNotReady
 from .api import BticinoX8000Api
 from .const import DOMAIN, WEBHOOK_ID
 from .coordinator import BticinoCoordinator
-from .webhook import BticinoX8000WebhookHandler
+from .webhook import SmartherWebhookHandler
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -21,8 +21,9 @@ PLATFORMS: list[Platform] = [
     Platform.SENSOR, 
     Platform.SELECT, 
     Platform.NUMBER, 
-    Platform.SWITCH, 
-    Platform.BUTTON
+    Platform.SWITCH,
+    Platform.BUTTON,
+    Platform.BINARY_SENSOR,
 ]
 
 
@@ -36,6 +37,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     # 2. Initialize Coordinator
     coordinator = BticinoCoordinator(hass, api, entry)
+
+    # 2b. Load persisted API usage stats BEFORE the first refresh.
+    # Doing this synchronously (awaited) prevents a startup race where the
+    # fire-and-forget load overwrote counter increments made by the first
+    # update cycle (the load replaces self.usage_stats wholesale).
+    await api.async_load_usage_data()
 
     # 3. First Refresh (Sequential) with Fault Tolerance
     # We must catch ConfigEntryNotReady.
@@ -60,14 +67,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     # 5. Register Webhook Handler (Home Assistant Side)
     # This is local, so we can do it even if banned.
-    webhook_handler = BticinoX8000WebhookHandler(hass, WEBHOOK_ID)
+    webhook_handler = SmartherWebhookHandler(hass, WEBHOOK_ID)
     await webhook_handler.async_register_webhook()
 
     # 6. Subscribe to C2C Notifications (Legrand Side)
     # Check if we are already banned (Cool Down Mode).
     # If the initial refresh failed with 429, these calls will definitely fail too.
     # We skip them to avoid increasing the ban counter on the server.
-    if coordinator.update_interval == coordinator.cool_down_interval:
+    if getattr(coordinator, "in_cool_down", False):
         _LOGGER.warning("Skipping C2C Subscription due to active Rate Limit (Cool Down Mode).")
     
     elif "selected_thermostats" in entry.data:
@@ -145,7 +152,7 @@ async def async_remove_config_entry_device(
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload a config entry."""
-    webhook_handler = BticinoX8000WebhookHandler(hass, WEBHOOK_ID)
+    webhook_handler = SmartherWebhookHandler(hass, WEBHOOK_ID)
     await webhook_handler.async_remove_webhook()
     
     if unload_ok := await hass.config_entries.async_unload_platforms(entry, PLATFORMS):
