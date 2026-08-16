@@ -1,5 +1,10 @@
 {
   "config": {
+    "abort": {
+      "reconfigure_successful": "Reconfiguration completed successfully.",
+      "single_instance_allowed": "Already configured. Only a single instance is allowed.",
+      "unknown": "Unexpected error."
+    },
     "error": {
       "invalid_credentials": "Invalid credentials",
       "invalid_url": "URL is invalid: {message}",
@@ -15,11 +20,28 @@
         "title": "Legrand/Bticino Smarther - Legacy Auth Method"
       },
       "reconfigure": {
+        "title": "Legrand/Bticino Smarther - Reconfigure",
+        "description": "What would you like to reconfigure?",
+        "menu_options": {
+          "reconfigure_url": "Change external URL (webhook target)",
+          "reconfigure_credentials": "Renew Legrand credentials (re-authenticate)"
+        }
+      },
+      "reconfigure_url": {
         "data": {
           "external_url": "URL to access Home Assistant"
         },
         "description": "Update the Home Assistant external URL used as the C2C webhook target. The current value is: {current_url}\n\nChanging it retargets the Legrand push subscription to the new URL and removes the old one. No re-authentication or device re-selection is needed.",
         "title": "Legrand/Bticino Smarther - Change Webhook URL"
+      },
+      "reconfigure_credentials": {
+        "data": {
+          "client_id": "Client Id",
+          "client_secret": "Client Secret",
+          "subscription_key": "Subscription Key"
+        },
+        "description": "Renew the Legrand developer credentials. The current values are pre-filled - edit the ones that changed. After submitting you will be asked to authorize again in your browser (the same steps as first setup) to obtain fresh tokens.\n\nYour external URL and selected thermostats are preserved. The integration keeps running on the current credentials until the new ones are validated.",
+        "title": "Legrand/Bticino Smarther - Renew Credentials"
       },
       "select_thermostats": {
         "data": {

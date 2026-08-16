@@ -40,8 +40,32 @@ class BticinoX8000ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         # Map: "Display Name (Plant ID)" -> Thermostat Data Object
         self._selection_map: dict[str, Any] = {}
         self.bticino_api: BticinoX8000Api | None = None
+        # Set only while re-authenticating an existing entry (credentials
+        # reconfigure). When set, the OAuth step finalizes by updating this
+        # entry in place instead of creating a new one.
+        self._reconfig_entry_id: str | None = None
 
     async def async_step_reconfigure(
+        self, user_input: dict[str, Any] | None = None
+    ) -> config_entries.ConfigFlowResult:
+        """Entry point for post-install reconfiguration.
+
+        Presents a menu with two independent, self-contained sub-flows:
+
+        * ``reconfigure_url`` - retarget the C2C webhook (external URL).
+        * ``reconfigure_credentials`` - renew the Legrand credentials
+          (client id/secret + subscription key) and re-run OAuth.
+
+        Crucially, neither sub-flow mutates the running ConfigEntry until it
+        has completed and validated successfully. Aborting the dialog or a
+        failed authorization leaves the production entry exactly as it was.
+        """
+        return self.async_show_menu(
+            step_id="reconfigure",
+            menu_options=["reconfigure_url", "reconfigure_credentials"],
+        )
+
+    async def async_step_reconfigure_url(
         self, user_input: dict[str, Any] | None = None
     ) -> config_entries.ConfigFlowResult:
         """Let the user change the Home Assistant external URL after install.
@@ -78,12 +102,81 @@ class BticinoX8000ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 )
 
         return self.async_show_form(
-            step_id="reconfigure",
+            step_id="reconfigure_url",
             data_schema=vol.Schema(
                 {vol.Required("external_url", default=current_url): str}
             ),
             errors=errors,
             description_placeholders={"current_url": current_url or "-"},
+        )
+
+    async def async_step_reconfigure_credentials(
+        self, user_input: dict[str, Any] | None = None
+    ) -> config_entries.ConfigFlowResult:
+        """Renew the Legrand credentials, then re-run OAuth for fresh tokens.
+
+        The Legrand subscription key, client id and client secret all belong
+        to the same developer-portal registration, so in practice they rotate
+        together and a rotation invalidates the existing OAuth tokens. This
+        step therefore edits all three at once (old values pre-filled) and
+        hands off to the same manual OAuth authorization used at first setup.
+
+        Safety: on submit we only stash the new values in the *flow-local*
+        ``self.data`` and record the entry id. The live ConfigEntry - and the
+        running coordinator/API client - are left untouched. The entry is
+        updated atomically (``async_update_reload_and_abort``) only after the
+        new credentials are proven working by a successful token exchange and
+        plants fetch inside ``async_step_get_authorize_code``. Any failure or
+        an aborted dialog leaves production running on the old credentials.
+        """
+        entry = self.hass.config_entries.async_get_entry(self.context["entry_id"])
+        if entry is None:
+            return self.async_abort(reason="unknown")
+
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            for key, value in user_input.items():
+                if isinstance(value, str) and not value.strip():
+                    errors[key] = "value_empty"
+
+            if not errors:
+                # Flow-local only. Seed from the existing entry so external_url,
+                # selected_thermostats, etc. are preserved through the OAuth
+                # dance, then overlay the three renewed secrets.
+                self._reconfig_entry_id = entry.entry_id
+                self.data = {
+                    **entry.data,
+                    "client_id": user_input["client_id"],
+                    "client_secret": user_input["client_secret"],
+                    "subscription_key": user_input["subscription_key"],
+                }
+                return self.async_show_form(
+                    step_id="get_authorize_code",
+                    data_schema=vol.Schema(
+                        {vol.Required("browser_url", default=""): str}
+                    ),
+                    description_placeholders={
+                        "auth_url": self.get_authorization_url(self.data),
+                    },
+                )
+
+        return self.async_show_form(
+            step_id="reconfigure_credentials",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(
+                        "client_id", default=entry.data.get("client_id", "")
+                    ): str,
+                    vol.Required(
+                        "client_secret", default=entry.data.get("client_secret", "")
+                    ): str,
+                    vol.Required(
+                        "subscription_key",
+                        default=entry.data.get("subscription_key", ""),
+                    ): str,
+                }
+            ),
+            errors=errors,
         )
 
     async def _async_cleanup_old_subscriptions(
@@ -294,6 +387,38 @@ class BticinoX8000ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 if plants_data.get("status_code") != 200:
                     _LOGGER.error("Failed to get plants: %s", plants_data)
                     return self.async_abort(reason="API Error: Could not retrieve plants.")
+
+                # Credentials reconfigure: at this point the new secrets have
+                # been validated end-to-end (health check + token exchange +
+                # plants fetch all succeeded). Update the existing entry in
+                # place - preserving external_url and selected_thermostats -
+                # and reload. This is the first and only mutation of the live
+                # entry; plant re-selection is intentionally skipped.
+                if self._reconfig_entry_id is not None:
+                    entry = self.hass.config_entries.async_get_entry(
+                        self._reconfig_entry_id
+                    )
+                    if entry is None:
+                        return self.async_abort(reason="unknown")
+                    _LOGGER.info(
+                        "Reconfigure: credentials renewed and validated; "
+                        "updating entry and reloading."
+                    )
+                    return self.async_update_reload_and_abort(
+                        entry,
+                        data={
+                            **entry.data,
+                            "client_id": self.data["client_id"],
+                            "client_secret": self.data["client_secret"],
+                            "subscription_key": self.data["subscription_key"],
+                            "access_token": self.data["access_token"],
+                            "refresh_token": self.data["refresh_token"],
+                            "access_token_expires_on": self.data[
+                                "access_token_expires_on"
+                            ],
+                        },
+                        reason="reconfigure_successful",
+                    )
 
                 # Robust Parsing: Handle nested structure safely
                 plants_payload = plants_data.get("data", {})

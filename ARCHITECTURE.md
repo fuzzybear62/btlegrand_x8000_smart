@@ -40,7 +40,7 @@ Coordinator data shape (flat): `{ topology_id: <chronothermostat dict>, ... }`.
 | `api.py` | 403 | `BticinoX8000Api` — HTTP, rate-limit/401 handling, usage Store |
 | `coordinator.py` | 497 | `BticinoCoordinator` — adaptive polling, cool-down, webhook merge |
 | `webhook.py` | 99 | `BticinoX8000WebhookHandler` — validates push, fans out to coordinators |
-| `config_flow.py` | 474 | 3-step user flow (creds → auth code → select thermostats) + reconfigure (external URL) |
+| `config_flow.py` | 598 | 3-step user flow (creds → auth code → select thermostats) + reconfigure menu (external URL / renew credentials) |
 | `climate.py` | 452 | `BticinoX8000Climate` — the thermostat entity |
 | `sensor.py` | 659 | 7 per-device sensors + 2 singleton diagnostics |
 | `select.py` | 358 | Program + Boost select entities |
@@ -153,15 +153,27 @@ Key methods:
 
 - Steps: `user` (client_id/secret/subscription_key/external_url) → auth-code
   (paste redirected `browser_url`) → `select_thermostats`.
-- `async_step_reconfigure` (`:43`): edit `external_url` (the C2C webhook target)
-  in place. Best-effort deletes the old-URL subscriptions via
-  `_async_cleanup_old_subscriptions` (uses the loaded `coordinator.api`), then
-  `async_update_reload_and_abort` — reload re-subscribes the new URL (409/200).
-  Requires HA ≥ 2024.4 (reconfigure flow); `MIN_REQUIRED_HA_VERSION` bumped to match.
+- `async_step_reconfigure`: **menu** with two self-contained sub-flows —
+  `reconfigure_url` and `reconfigure_credentials`. Neither mutates the running
+  entry until it completes and validates; an aborted/failed dialog leaves the
+  production entry untouched.
+  - `reconfigure_url`: edit `external_url` (the C2C webhook target) in place.
+    Best-effort deletes the old-URL subscriptions via
+    `_async_cleanup_old_subscriptions` (uses the loaded `coordinator.api`), then
+    `async_update_reload_and_abort` — reload re-subscribes the new URL (409/200).
+  - `reconfigure_credentials`: renew `client_id`/`client_secret`/`subscription_key`
+    (old values pre-filled) and re-run OAuth. New secrets live only in flow-local
+    `self.data` (+ `_reconfig_entry_id`); the OAuth dance reuses
+    `async_step_get_authorize_code`, which — when `_reconfig_entry_id` is set —
+    finalizes by `async_update_reload_and_abort` **only after** health-check +
+    token exchange + `get_plants()==200` validate the new creds. Preserves
+    `external_url` and `selected_thermostats` (entity_ids/history kept); plant
+    re-selection is skipped.
+  - Requires HA ≥ 2024.4 (reconfigure flow); `MIN_REQUIRED_HA_VERSION` bumped to match.
 - `single_instance_allowed`. Stores `access_token_expires_on` (datetime) in
   `entry.data`. **No `async_get_options_flow`** — intentional; config numbers/
-  switches own the tuning options. `entry.data` (creds, device selection) is
-  otherwise fixed at install; only `external_url` is user-editable (reconfigure).
+  switches own the tuning options. `entry.data` device selection is fixed at
+  install; `external_url` and the credential set are user-editable via reconfigure.
 
 ## 10. Entities
 

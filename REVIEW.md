@@ -304,3 +304,33 @@ those exact field names (the earlier defensive multi-key guessing was removed).
 Credentials-reauth and device re-selection were analysed and **deliberately
 deferred** (separate, higher-complexity steps). Requires HA ≥ 2024.4
 (`MIN_REQUIRED_HA_VERSION` and `hacs.json` bumped); manifest `version` → 1.1.0.
+
+## Feature — Reconfigure credentials (v1.2.0)
+
+`async_step_reconfigure` became a **menu** with two sub-flows: `reconfigure_url`
+(the v1.1.0 logic, unchanged) and the new `reconfigure_credentials`.
+
+Rationale: the Legrand `subscription_key`, `client_id` and `client_secret` all
+belong to the same developer-portal registration, so in practice they rotate
+together and a rotation invalidates the OAuth tokens. A single-field editor was
+therefore rejected as useless; the coherent unit of work is "renew the whole
+credential set + re-authenticate". `reconfigure_credentials` pre-fills the three
+current secrets, then hands off to the existing manual OAuth step
+(`async_step_get_authorize_code`) to mint fresh tokens.
+
+**Safety design (the entry must never break, as this ships without a staging
+test):** the sub-flow keeps all new state in flow-local `self.data` and records
+`_reconfig_entry_id`. The running coordinator/API client is never touched. The
+live `entry.data` is mutated exactly once — a final `async_update_reload_and_abort`
+inside `get_authorize_code` — and only **after** the new credentials are proven
+end-to-end (`check_api_endpoint_health` → `exchange_code_for_tokens` →
+`get_plants()==200`). Any abort/failure leaves production running on the old
+credentials. The merge preserves `external_url` and `selected_thermostats`, so
+`entity_id`s and history survive; plant re-selection is skipped.
+
+Naming coherence re-checked across the addon: `DOMAIN`/`WEBHOOK_ID`
+(`btlegrand_x8000_*`), the display name ("Legrand/Bticino Smarther x8000 NOT
+Netatmo") and the `BtLegrand` manufacturer/device naming are consistent
+everywhere user-visible; the `Bticino*` prefixes are internal Python class names
+only (left as-is — a rename would be untestable churn with no functional effect).
+Added a `config.abort` translation block (en/it). Manifest `version` → 1.2.0.

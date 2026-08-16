@@ -1,5 +1,10 @@
 {
   "config": {
+    "abort": {
+      "reconfigure_successful": "Riconfigurazione completata con successo.",
+      "single_instance_allowed": "Già configurato. È consentita una sola istanza.",
+      "unknown": "Errore inatteso."
+    },
     "error": {
       "invalid_credentials": "Credenziali non valide",
       "invalid_url": "L'URL non è valido: {message}",
@@ -97,11 +102,28 @@
         "title": "Legrand/Bticino Smarther - Metodo di Autenticazione Legacy"
       },
       "reconfigure": {
+        "title": "Legrand/Bticino Smarther - Riconfigura",
+        "description": "Cosa vuoi riconfigurare?",
+        "menu_options": {
+          "reconfigure_url": "Cambia URL esterno (destinazione webhook)",
+          "reconfigure_credentials": "Rinnova le credenziali Legrand (ri-autenticazione)"
+        }
+      },
+      "reconfigure_url": {
         "data": {
           "external_url": "URL per accedere a Home Assistant"
         },
         "description": "Aggiorna l'URL esterno di Home Assistant usato come destinazione del webhook C2C. Il valore attuale è: {current_url}\n\nModificandolo, la sottoscrizione push Legrand viene reindirizzata al nuovo URL e la vecchia viene rimossa. Non serve rifare l'autenticazione né riselezionare i dispositivi.",
         "title": "Legrand/Bticino Smarther - Cambia URL Webhook"
+      },
+      "reconfigure_credentials": {
+        "data": {
+          "client_id": "ID Client",
+          "client_secret": "Segreto del Client",
+          "subscription_key": "Chiave di Sottoscrizione"
+        },
+        "description": "Rinnova le credenziali del portale Legrand Developer. I valori attuali sono pre-compilati: modifica quelli cambiati. Dopo l'invio ti verrà chiesto di autorizzare di nuovo nel browser (gli stessi passi del primo setup) per ottenere token freschi.\n\nL'URL esterno e i termostati selezionati vengono mantenuti. L'integrazione continua a funzionare con le credenziali attuali finché le nuove non sono validate.",
+        "title": "Legrand/Bticino Smarther - Rinnova Credenziali"
       },
       "select_thermostats": {
         "data": {

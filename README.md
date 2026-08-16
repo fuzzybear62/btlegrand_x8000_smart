@@ -141,19 +141,30 @@ the running coordinator and persist to the config entry) — no reload needed.
 | **Notify Errors** | Switch | `ON` | — | Raise a persistent notification when the integration pauses due to an API error. |
 | **Webhook Debounce** | Number | `1.0 s` | 0.5–5.0 s | Coalescing window for rapid webhook bursts (e.g. sliding the device's touch bar). |
 
-### Changing the external URL (Reconfigure)
+### Reconfiguring after install
 
-The credentials and thermostat selection are fixed at install time, but the
-**Home Assistant external URL** — the C2C webhook target — can be changed in place
-via **Settings → Devices & Services → (entry) → ⋮ → Reconfigure**. This is useful
-when your domain / DDNS changes or you enable/disable a reverse proxy: without it,
-the Legrand push subscription would keep pointing at the old URL and push updates
-would silently stop.
+The thermostat selection is fixed at install time, but two things can be changed
+in place via **Settings → Devices & Services → (entry) → ⋮ → Reconfigure**, which
+opens a menu with two options. Neither touches the running integration until the
+change is validated — if you cancel or authorization fails, the entry keeps
+working on its current settings.
 
+**Change external URL (webhook target).** Useful when your domain / DDNS changes
+or you enable/disable a reverse proxy: without it, the Legrand push subscription
+would keep pointing at the old URL and push updates would silently stop.
 Reconfigure retargets the subscription to the new URL and best-effort removes the
-subscription bound to the old one — no re-authentication and no device re-selection.
-(Removing the old subscription is non-fatal: if it can't be reached, it is left as a
-harmless orphan you can clean up manually.)
+subscription bound to the old one — no re-authentication and no device
+re-selection. (Removing the old subscription is non-fatal: if it can't be reached,
+it is left as a harmless orphan you can clean up manually.)
+
+**Renew Legrand credentials (re-authenticate).** The `subscription key`,
+`client id` and `client secret` from the Legrand developer portal belong to the
+same registration and rotate together; a rotation also invalidates the OAuth
+tokens. This option pre-fills the current values, lets you edit the ones that
+changed, then runs the same browser authorization as first setup to obtain fresh
+tokens. Your external URL and selected thermostats (and their history) are
+preserved. The integration keeps running on the current credentials until the new
+ones are validated against the Legrand cloud.
 
 ---
 
