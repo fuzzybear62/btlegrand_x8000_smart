@@ -153,7 +153,9 @@ Key methods:
   persistent notification (if `notify_errors`), sets cool-down interval,
   `notify_listeners_only()`, **raises `UpdateFailed`**.
 - `async_force_token_refresh:346` (button target).
-- `notify_listeners_only:361` → `async_update_listeners()`.
+- `notify_listeners_only` → `async_update_listeners()`.
+- `apply_optimistic(topology_id, patch)` → merges a command payload into
+  `data[topology_id]` so the post-command re-parse reads the new state (v1.5.2).
 - `update_from_webhook:371` — debounce via monotonic (`:384`), hybrid plant_map
   lookup, `_extract_chronothermostats`, `_get_topology_id`.
 - Inline 429 abort at `:225` is shielded from the generic net by an
@@ -205,7 +207,10 @@ Key methods:
 ### climate.py — `BticinoX8000Climate` (`climate.py`)
 - `_update_state_from_coordinator` maps thermometer/setPoint/mode/function/
   loadState → hvac_mode/action/preset.
-- Optimistic set + revert-on-failure for hvac_mode/temperature/preset.
+- Optimistic set + revert-on-failure for hvac_mode/temperature/preset. On success
+  also calls `coordinator.apply_optimistic(topology_id, payload)` so the immediate
+  `notify_listeners_only()` re-parse reads the new state instead of clobbering the
+  optimistic value with the stale cache (fixes setpoint "revert" — v1.5.2).
 - `in_cool_down` gates commands; `available` requires `topology_id` in
   `coordinator.data`. `unique_id = {DOMAIN}_{topology_id}_climate`.
 - `extra_state_attributes` only when logger DEBUG.

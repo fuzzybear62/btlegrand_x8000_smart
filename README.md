@@ -278,6 +278,12 @@ config_flow ──► __init__.async_setup_entry
   `coordinator.data[topology_id]`. The tuning entities (`number`/`switch`/`button`)
   write straight into coordinator memory **and** persist to the config entry — there
   is intentionally no separate Options flow.
+- **Commands** (climate set temperature / mode / preset) call the cloud, then apply
+  the change **optimistically** *and* merge it into `coordinator.data` via
+  `apply_optimistic()`, so the UI sticks immediately; the free webhook and the next
+  scheduled poll reconcile it against the cloud. *(Before v1.5.2 the optimistic value
+  was overwritten by the immediate stale-cache re-parse, so a new setpoint appeared
+  to revert for seconds/minutes before taking effect.)*
 
 A fuller `file:line` map lives in [`ARCHITECTURE.md`](ARCHITECTURE.md).
 
