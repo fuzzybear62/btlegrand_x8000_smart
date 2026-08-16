@@ -222,7 +222,10 @@ cards:
         color: "#7e57c2"
       # Flat quota line generated from the live number entity (quota-aware,
       # independent of recorder retention).
-      - name: Quota
+      # `entity` is required by apexcharts-card even for data_generator series;
+      # its own history is ignored — the flat quota line comes from the generator.
+      - entity: number.btlegrand_service_daily_api_quota
+        name: Quota
         type: line
         stroke_width: 2
         color: "#e53935"
@@ -256,7 +259,10 @@ cards:
           type: change
           period: day
         color: "#5c6bc0"
-      - name: Quota
+      # `entity` is required by apexcharts-card even for data_generator series;
+      # its own history is ignored — the flat quota line comes from the generator.
+      - entity: number.btlegrand_service_daily_api_quota
+        name: Quota
         type: line
         stroke_width: 2
         color: "#e53935"
