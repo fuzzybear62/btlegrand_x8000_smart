@@ -90,6 +90,24 @@ class BticinoX8000Api:
         """Backward compatibility property for total calls."""
         return self.usage_stats.get("total", 0)
 
+    @property
+    def skip_count(self) -> int:
+        """Polls skipped by Smart Polling today (persisted, resets at midnight)."""
+        return self.usage_stats.get("skips", 0)
+
+    def record_skip(self) -> None:
+        """Record a poll skipped by Smart Polling.
+
+        Kept in the same store as ``call_count`` and reset at local midnight, so
+        the live diagnostic sensor and the statistics-based daily chart agree.
+        The previous in-memory counter reset to 0 on every reload/restart, which
+        made ``statistics: change`` sum each post-reload climb and inflate the
+        daily total (e.g. 382 charted vs 77 live after several reloads).
+        """
+        self._check_midnight_reset()
+        self.usage_stats["skips"] = self.usage_stats.get("skips", 0) + 1
+        self._save_usage_data()
+
     async def _load_usage_data(self) -> None:
         """Load API usage data from disk and reset if new day."""
         try:

@@ -450,6 +450,11 @@ breakdown is what makes an over-budget day diagnosable.
 A running tally of poll cycles the optimizer *chose not to make* — because a passive
 zone wasn't due yet, or because the Frozen tier paused scheduled polling. It's the
 direct measure of how much work smart polling saved you; a rising number is good.
+Like *API Call Count*, it is **persisted across reloads and reset only at local
+midnight**, so the live value and the *skips/day* history chart (which reads
+long-term statistics via `change`) agree. *(Before v1.5.1 it was an in-memory
+counter that reset on every reload; `change/day` then summed each post-reload climb
+and over-reported — a live 77 could chart as 382 after several restarts.)*
 > *Example.* 3 passive zones on the default 4× each skip 3 of every 4 cycles, so over
 > a day this climbs by a few hundred. If it's stuck near `0`, either all zones are
 > active or **Smart Energy Saving** is off — you're paying full price.
@@ -487,7 +492,7 @@ A ready-made **Sections** view that visualises the diagnostics above — live *a
 historical — ships under [`dashboards/`](dashboards/):
 
 - [`dashboards/diagnostics_section.yaml`](dashboards/diagnostics_section.yaml) — the
-  dashboard section (paste into a Sections view).
+  complete `type: sections` view (paste under `views:` in the raw config editor).
 - [`dashboards/diagnostics_templates.yaml`](dashboards/diagnostics_templates.yaml) —
   two helper template sensors.
 
@@ -508,11 +513,13 @@ custom per-device chart.
    express usage as a percentage of the *live* Daily API Quota, so the gauges stay
    correct even after you retune the quota.
 
-**Install.** A *Sections* view is already a grid, so `diagnostics_section.yaml` is a
-plain **list of cards** (no outer `type: grid` wrapper). Edit a dashboard → open a
-*Sections* view → **＋ Add card** → **Show code editor**, and paste the cards. Each
-card carries its own `grid_options.columns` (6 = half, 12 = full) so the section lays
-them out for you.
+**Install.** `diagnostics_section.yaml` is a **complete Sections view** (`type:
+sections`, three `type: grid` sections, side-by-side cards grouped in
+`horizontal-stack`). Open the dashboard's **⋮ → Edit dashboard → ⋮ → Raw
+configuration editor** and paste the whole block as a new item under the top-level
+`views:` list. Every ApexCharts card sets an explicit `apex_config.chart.height`
+because, unlike a native `gauge`, a custom card in a section has no intrinsic height
+and would otherwise collapse to just its title.
 
 **Adjust entity ids.** The YAML assumes the default service device name
 *"BtLegrand Service"* (e.g. `sensor.btlegrand_service_api_call_count`); the ids are

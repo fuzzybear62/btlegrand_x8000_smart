@@ -129,8 +129,9 @@ class BticinoCoordinator(DataUpdateCoordinator):
         # Track when each specific thermostat was last updated (for Smart Polling)
         self._last_update_time: dict[str, Any] = {}
         
-        # Diagnostic counter for Smart Polling efficiency
-        self.skipped_count = 0
+        # Diagnostic counter for Smart Polling efficiency lives in the API client
+        # (persisted + reset at local midnight, exactly like call_count) and is
+        # surfaced through the ``skipped_count`` property below.
 
         # Smart-polling diagnostics: expose the current throttling state and the
         # intervals actually being enforced, so effectiveness is measurable.
@@ -266,7 +267,7 @@ class BticinoCoordinator(DataUpdateCoordinator):
                 # prior data so entities keep their last known value.
                 if frozen and self.data and topology_id in self.data:
                     should_update = False
-                    self.skipped_count += 1
+                    self.api.record_skip()
                     _LOGGER.debug("Smart Polling: FROZEN, skipping scheduled poll for %s", topology_id)
 
                 # Only apply logic if enabled AND we have previous data AND not in emergency cool down
@@ -290,7 +291,7 @@ class BticinoCoordinator(DataUpdateCoordinator):
                         if now - last_update < required_interval:
                             should_update = False
                             # Increment diagnostic counter
-                            self.skipped_count += 1
+                            self.api.record_skip()
                             _LOGGER.debug(
                                 "Smart Polling: Skipping %s (Mode: %s). Next update in %.1f min.", 
                                 topology_id, mode, 
@@ -464,6 +465,16 @@ class BticinoCoordinator(DataUpdateCoordinator):
         """
         # Triggers the _handle_coordinator_update method on all registered entities
         self.async_update_listeners()
+
+    @property
+    def skipped_count(self) -> int:
+        """Polls skipped by Smart Polling today.
+
+        Delegates to the API client, which persists the count across reloads and
+        resets it at local midnight (like call_count), so the live sensor matches
+        the statistics-based daily chart.
+        """
+        return self.api.skip_count
 
     @property
     def projected_daily_calls(self) -> int:
