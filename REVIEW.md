@@ -298,6 +298,9 @@ Added `async_step_reconfigure` (`config_flow.py`): edits `external_url`,
 best-effort deletes the old-URL C2C subscriptions
 (`_async_cleanup_old_subscriptions`, non-fatal), then
 `async_update_reload_and_abort` — the reload re-subscribes the new URL (409/200).
+The `GET /subscription` schema was validated against the live Legrand cloud —
+a flat array of `{plantId, subscriptionId, EndPointUrl}` — so the parser keys on
+those exact field names (the earlier defensive multi-key guessing was removed).
 Credentials-reauth and device re-selection were analysed and **deliberately
 deferred** (separate, higher-complexity steps). Requires HA ≥ 2024.4
 (`MIN_REQUIRED_HA_VERSION` and `hacs.json` bumped); manifest `version` → 1.1.0.

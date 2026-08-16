@@ -121,29 +121,26 @@ class BticinoX8000ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             )
             return
 
-        subs = resp.get("data") or []
-        if isinstance(subs, dict):
-            subs = subs.get("subscriptions") or subs.get("plants") or []
+        # GET /subscription returns a flat JSON array of objects shaped
+        # {"plantId": ..., "subscriptionId": ..., "EndPointUrl": ...}
+        # (schema confirmed against the live Legrand cloud).
+        subs = resp.get("data")
+        if not isinstance(subs, list):
+            _LOGGER.warning(
+                "Reconfigure: unexpected subscription-list shape (%s); old "
+                "subscription for %s may need manual cleanup.",
+                type(subs).__name__, old_webhook_url,
+            )
+            return
 
         deleted = 0
-        for sub in subs if isinstance(subs, list) else []:
+        for sub in subs:
             if not isinstance(sub, dict):
                 continue
-            # Subscribe payload uses "EndPointUrl"; tolerate casing variants.
-            url = (
-                sub.get("EndPointUrl")
-                or sub.get("EndpointUrl")
-                or sub.get("endPointUrl")
-                or sub.get("url")
-            )
-            if not url or url.rstrip("/") != old_webhook_url:
+            if (sub.get("EndPointUrl") or "").rstrip("/") != old_webhook_url:
                 continue
-            sub_id = (
-                sub.get("subscriptionId")
-                or sub.get("id")
-                or sub.get("subscription_id")
-            )
-            plant_id = sub.get("plantId") or sub.get("plant") or sub.get("plant_id")
+            sub_id = sub.get("subscriptionId")
+            plant_id = sub.get("plantId")
             if not sub_id or not plant_id:
                 continue
             try:
