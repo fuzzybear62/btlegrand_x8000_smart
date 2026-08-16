@@ -66,7 +66,6 @@ class BticinoBaseNumber(CoordinatorEntity, NumberEntity):
         """Initialize the number entity."""
         super().__init__(coordinator)
         # Unique ID is generated using the Entry ID to be globally unique
-        # UPDATED: Use DOMAIN prefix to ensure uniqueness across integrations
         self._attr_unique_id = f"{DOMAIN}_{self._attr_key}_{coordinator.entry.entry_id}"
 
     @property
@@ -74,7 +73,6 @@ class BticinoBaseNumber(CoordinatorEntity, NumberEntity):
         """Link this entity to the 'Bticino Cloud Service' virtual device."""
         return DeviceInfo(
             identifiers={(DOMAIN, self.coordinator.entry.entry_id)},
-            # UPDATED: Renamed to distinguish from original integration
             name="BtLegrand Service",
             manufacturer="BtLegrand",
             model="API Gateway",
@@ -103,7 +101,7 @@ class BticinoBaseNumber(CoordinatorEntity, NumberEntity):
         return {
             "_last_set_value_native": self.native_value,
             "_last_debug_timestamp": dt_util.utcnow().isoformat(),
-            # FIX: Show the actual interval being used by the system (e.g. 60 during ban),
+            # Show the actual interval being used by the system (e.g. 60 during ban),
             # separate from the UI value (which shows user config).
             "_system_current_interval": self.coordinator.update_interval.total_seconds() / 60,
         }
@@ -128,7 +126,7 @@ class BticinoBaseNumber(CoordinatorEntity, NumberEntity):
         
         self.async_write_ha_state()
 
-        # IMPROVEMENT: Smart Refresh Logic
+        # Smart Refresh Logic
         # 1. If force_refresh is True (e.g. changing Cool Down settings), we refresh immediately.
         # 2. If NOT in Cool Down, we refresh to apply new normal interval.
         # 3. If in Cool Down and force_refresh is False, we skip to avoid useless API calls.
@@ -149,7 +147,6 @@ class BticinoUpdateIntervalNumber(BticinoBaseNumber):
     """
     _attr_name = "Update Interval"
     _attr_icon = "mdi:timer-cog"
-    # UPDATED: Removed hardcoded 'bticino_' prefix, rely on DOMAIN in base class
     _attr_key = "update_interval"
     _attr_native_unit_of_measurement = UnitOfTime.MINUTES
     _attr_device_class = NumberDeviceClass.DURATION
@@ -197,7 +194,6 @@ class BticinoCoolDownNumber(BticinoBaseNumber):
     """
     _attr_name = "Cool Down Interval"
     _attr_icon = "mdi:timer-lock-open"
-    # UPDATED: Removed hardcoded 'bticino_' prefix
     _attr_key = "cool_down"
     _attr_native_unit_of_measurement = UnitOfTime.MINUTES
     _attr_device_class = NumberDeviceClass.DURATION
@@ -241,7 +237,6 @@ class BticinoDebounceNumber(BticinoBaseNumber):
     """
     _attr_name = "Webhook Debounce"
     _attr_icon = "mdi:traffic-light"
-    # UPDATED: Removed hardcoded 'bticino_' prefix
     _attr_key = "webhook_debounce"
     _attr_native_unit_of_measurement = UnitOfTime.SECONDS
     
@@ -291,7 +286,6 @@ class BticinoDailyQuotaNumber(BticinoBaseNumber):
     @property
     def native_value(self) -> float:
         """Return the current daily quota."""
-        # This attribute must be initialized in the Coordinator (to be added)
         return self.coordinator.daily_api_quota
 
     async def async_set_native_value(self, value: float) -> None:

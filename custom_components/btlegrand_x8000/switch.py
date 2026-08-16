@@ -16,7 +16,7 @@ from homeassistant.util import dt as dt_util
 from .const import (
     DOMAIN,
     CONF_NOTIFY_ERRORS,
-    CONF_SMART_POLLING,  # NEW: Import config key
+    CONF_SMART_POLLING,
 )
 from .coordinator import BticinoCoordinator
 
@@ -34,7 +34,7 @@ async def async_setup_entry(
     # Instantiate the switch entity for controlling error notifications
     entities = [
         BticinoNotifyErrorsSwitch(coordinator),
-        BticinoSmartPollingSwitch(coordinator),  # NEW: Smart Polling Switch
+        BticinoSmartPollingSwitch(coordinator),
     ]
 
     async_add_entities(entities)
@@ -57,10 +57,9 @@ class BticinoNotifyErrorsSwitch(CoordinatorEntity, SwitchEntity):
         """Initialize the switch entity."""
         super().__init__(coordinator)
         # Unique ID generated from Entry ID to be globally unique
-        # UPDATED: Use dynamic DOMAIN for unique_id to support rebranding
         self._attr_unique_id = f"{DOMAIN}_notify_errors_{coordinator.entry.entry_id}"
         
-        # IMPROVEMENT: Track last change time locally to avoid updating it on every state read
+        # Track last change time locally to avoid updating it on every state read
         self._last_change_time = None
 
     @property
@@ -68,7 +67,6 @@ class BticinoNotifyErrorsSwitch(CoordinatorEntity, SwitchEntity):
         """Link this entity to the 'Bticino Cloud Service' virtual device."""
         return DeviceInfo(
             identifiers={(DOMAIN, self.coordinator.entry.entry_id)},
-            # UPDATED: Renamed to distinguish from original integration
             name="BtLegrand Service",
             manufacturer="BtLegrand",
             model="API Gateway",
@@ -136,7 +134,7 @@ class BticinoNotifyErrorsSwitch(CoordinatorEntity, SwitchEntity):
         new_options = dict(self.coordinator.entry.options)
         new_options[CONF_NOTIFY_ERRORS] = enabled
         
-        # CRITICAL FIX: 'async_update_entry' returns a boolean, not an awaitable coroutine.
+        # 'async_update_entry' returns a boolean, not an awaitable coroutine.
         # We removed the 'await' keyword to prevent the TypeError exception.
         self.hass.config_entries.async_update_entry(
             self.coordinator.entry, 
@@ -160,7 +158,6 @@ class BticinoSmartPollingSwitch(CoordinatorEntity, SwitchEntity):
     def __init__(self, coordinator: BticinoCoordinator) -> None:
         """Initialize the switch entity."""
         super().__init__(coordinator)
-        # UPDATED: Use dynamic DOMAIN for unique_id to support rebranding
         self._attr_unique_id = f"{DOMAIN}_smart_polling_{coordinator.entry.entry_id}"
         self._last_change_time = None
 
@@ -169,7 +166,6 @@ class BticinoSmartPollingSwitch(CoordinatorEntity, SwitchEntity):
         """Link this entity to the 'Bticino Cloud Service' virtual device."""
         return DeviceInfo(
             identifiers={(DOMAIN, self.coordinator.entry.entry_id)},
-            # UPDATED: Renamed to distinguish from original integration
             name="BtLegrand Service",
             manufacturer="BtLegrand",
             model="API Gateway",

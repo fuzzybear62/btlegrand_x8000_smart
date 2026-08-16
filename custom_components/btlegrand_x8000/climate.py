@@ -2,7 +2,6 @@
 
 import logging
 from typing import Any
-from datetime import timedelta
 
 from homeassistant.components.climate import (
     ClimateEntity,
@@ -16,7 +15,6 @@ from homeassistant.const import ATTR_TEMPERATURE, UnitOfTemperature
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
-from homeassistant.util import dt as dt_util
 
 from .const import DOMAIN, DEFAULT_MAX_TEMP, DEFAULT_MIN_TEMP
 from .coordinator import BticinoCoordinator
@@ -79,7 +77,6 @@ class BticinoX8000Climate(CoordinatorEntity, ClimateEntity):
         self._plant_id = plant_id
         self._topology_id = thermo_data.get("id")
         self._device_name = thermo_data.get("name")
-        # UPDATED: Use DOMAIN prefix for unique_id to support rebranding/side-by-side install
         self._attr_unique_id = f"{DOMAIN}_{self._topology_id}_climate"
         
         self._programs_name = thermo_data.get("programs", [])
@@ -109,7 +106,6 @@ class BticinoX8000Climate(CoordinatorEntity, ClimateEntity):
         return {
             "identifiers": {(DOMAIN, self._topology_id)},
             "name": self._device_name,
-            # UPDATED: Changed manufacturer to indicate the source integration
             "manufacturer": "BtLegrand",
             "model": "X8000",
         }
@@ -121,7 +117,7 @@ class BticinoX8000Climate(CoordinatorEntity, ClimateEntity):
         if not super().available:
             return False
         
-        # UX FIX: Explicitly check if we have data for THIS specific thermostat.
+        # Explicitly check if we have data for THIS specific thermostat.
         # If the API returned a 404 (Gateway Offline), this key will be missing.
         # Marking it unavailable prevents the UI from showing a misleading "Off" state.
         if self.coordinator.data and self._topology_id not in self.coordinator.data:
@@ -141,7 +137,7 @@ class BticinoX8000Climate(CoordinatorEntity, ClimateEntity):
             "_topology_id": self._topology_id,
         }
         
-        # IMPROVEMENT (Review Pt. 3): Add Boost end time if available
+        # Add Boost end time if available
         if self._attr_preset_mode == "Boost" and self.coordinator.data:
             data = self.coordinator.data.get(self._topology_id, {})
             act_time = data.get("activationTime")
@@ -166,7 +162,7 @@ class BticinoX8000Climate(CoordinatorEntity, ClimateEntity):
 
         data = self.coordinator.data.get(self._topology_id)
         if not data:
-            # FIX: If data is missing (e.g. 404 error), we stop here.
+            # If data is missing (e.g. 404 error), we stop here.
             # The 'available' property will handle the UI state.
             return
 
@@ -189,7 +185,7 @@ class BticinoX8000Climate(CoordinatorEntity, ClimateEntity):
             load_state = data.get("loadState", "").lower()
 
             # HVAC Mode & Preset Mode
-            # IMPROVEMENT (Review Pt. 2): Strictly reset preset if not in a preset-compatible mode
+            # Strictly reset preset if not in a preset-compatible mode
             self._attr_preset_mode = PRESET_NONE
             
             if mode == "automatic":
@@ -351,7 +347,7 @@ class BticinoX8000Climate(CoordinatorEntity, ClimateEntity):
                 self._attr_hvac_mode = HVACMode.COOL
             self._attr_preset_mode = PRESET_NONE
             
-            # IMPROVEMENT (Review Pt. 1): Optimistic HVAC Action Inference
+            # Optimistic HVAC Action Inference
             # If target > current, assume HEATING. If target < current, assume COOLING.
             # This makes the UI feel instantly responsive.
             if self._attr_current_temperature is not None:

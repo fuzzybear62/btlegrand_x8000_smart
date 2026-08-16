@@ -15,7 +15,6 @@ from .webhook import BticinoX8000WebhookHandler
 
 _LOGGER = logging.getLogger(__name__)
 
-# UPDATED: Added NUMBER, SWITCH, and BUTTON to the list of platforms to load
 PLATFORMS: list[Platform] = [
     Platform.CLIMATE, 
     Platform.SENSOR, 
@@ -29,8 +28,7 @@ PLATFORMS: list[Platform] = [
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Bticino X8000 from a config entry."""
     
-    # UPDATED: Log reflects the Rebranded Integration Name
-    _LOGGER.info("Setting up Legrand/Bticino Smarther integration with Optimized Core (Fix Boot Loop)")
+    _LOGGER.info("Setting up Legrand/Bticino Smarther integration")
 
     # 1. Initialize API
     api = BticinoX8000Api(hass, dict(entry.data))
@@ -39,7 +37,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     coordinator = BticinoCoordinator(hass, api, entry)
 
     # 3. First Refresh (Sequential) with Fault Tolerance
-    # CRITICAL FIX: We must catch ConfigEntryNotReady.
+    # We must catch ConfigEntryNotReady.
     # The method async_config_entry_first_refresh() raises ConfigEntryNotReady 
     # if the update fails. If we don't catch it, HA will retry setup endlessly.
     try:
@@ -65,7 +63,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     await webhook_handler.async_register_webhook()
 
     # 6. Subscribe to C2C Notifications (Legrand Side)
-    # OPTIMIZATION: Check if we are already banned (Cool Down Mode).
+    # Check if we are already banned (Cool Down Mode).
     # If the initial refresh failed with 429, these calls will definitely fail too.
     # We skip them to avoid increasing the ban counter on the server.
     if coordinator.update_interval == coordinator.cool_down_interval:

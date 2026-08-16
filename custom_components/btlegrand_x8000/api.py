@@ -97,7 +97,7 @@ class BticinoX8000Api:
             if data:
                 stored_date_str = data.get("date")
                 # Handle migration from old integer format to new dict format
-                # FIX: Use None as default to detect missing key vs empty dict
+                # Use None as default to detect missing key vs empty dict
                 stored_stats = data.get("stats")
                 if not isinstance(stored_stats, dict):
                     # Fallback for legacy data
@@ -196,10 +196,10 @@ class BticinoX8000Api:
             while attempts < max_attempts:
                 attempts += 1
                 
-                # FIX: Runtime Midnight Check
+                # Runtime Midnight Check
                 self._check_midnight_reset()
 
-                # FIX: Count physical requests (including retries) for accurate Rate Limit tracking
+                # Count physical requests (including retries) for accurate Rate Limit tracking
                 # Now using the detailed incrementer
                 self._increment_usage_counter(url)
                 
@@ -220,9 +220,14 @@ class BticinoX8000Api:
                         request_args["json"] = payload
 
                     _LOGGER.debug(
-                        "API Call #%s | Attempt %s/%s: %s %s", 
+                        "API Call #%s | Attempt %s/%s: %s %s",
                         self.usage_stats["total"], attempts, max_attempts, method, url
                     )
+
+                    # Snapshot the token this request is being sent with, so that on
+                    # a 401 we can tell whether another task refreshed it while we
+                    # were waiting on the refresh lock (see CASE 2 below).
+                    sent_token = self.header["Authorization"]
 
                     async with self._session.request(method, url, **request_args) as response:
                         status_code = response.status
@@ -242,8 +247,11 @@ class BticinoX8000Api:
                                 _LOGGER.warning("401 Unauthorized. Acquiring lock to refresh token...")
                                 
                                 async with self._token_refresh_lock:
-                                    if self.header["Authorization"] != self.data["access_token"]:
-                                         _LOGGER.info("Token refreshed by another thread. Retrying request.")
+                                    # If the live token no longer matches the one we
+                                    # sent, another task already refreshed it while we
+                                    # waited on the lock -> just retry with the new one.
+                                    if self.header["Authorization"] != sent_token:
+                                         _LOGGER.debug("Token refreshed by another task. Retrying request.")
                                     else:
                                         if await self._handle_token_refresh():
                                             _LOGGER.info("Token refreshed and SAVED. Retrying request.")
@@ -262,7 +270,7 @@ class BticinoX8000Api:
                         if status_code == 429:
                             _LOGGER.error("429 Rate Limit Detected on attempt %s. ABORTING RETRIES.", attempts)
                             self.api_rate_limit_count += 1
-                            raise RateLimitError(f"Persistent Rate Limit (429) detected")
+                            raise RateLimitError("Persistent Rate Limit (429) detected")
 
                         # CASE 4: SERVER ERROR (5xx)
                         if status_code >= 500:
@@ -319,7 +327,7 @@ class BticinoX8000Api:
                         entry, 
                         data={**entry.data, "access_token": access_token, "refresh_token": refresh_token}
                     )
-                    _LOGGER.info("Successfully saved new token to ConfigEntry storage.")
+                    _LOGGER.debug("Persisted refreshed token to ConfigEntry storage.")
                     break
             
             return True
@@ -371,6 +379,13 @@ class BticinoX8000Api:
         )
         return await self._async_request("GET", url)
 
+    # Subscription GET/DELETE are intentionally NOT wired into unload/removal.
+    # The C2C subscription is deliberately left on the Legrand side when the
+    # integration is removed, so a later reinstall reuses it (re-subscribe returns
+    # 409 "already active" -> handled as success in __init__). Orphans are
+    # harmless: inbound webhooks don't count against the quota. These two helpers
+    # exist only for an optional manual cleanup (e.g. if the external URL changes
+    # across installs and old subscriptions accumulate). Do not auto-call them.
     async def get_subscriptions_c2c_notifications(self) -> dict[str, Any]:
         url = f"{DEFAULT_API_BASE_URL}{THERMOSTAT_API_ENDPOINT}/subscription"
         return await self._async_request("GET", url)
@@ -379,6 +394,7 @@ class BticinoX8000Api:
         url = f"{DEFAULT_API_BASE_URL}{THERMOSTAT_API_ENDPOINT}{PLANTS}/{plant_id}/subscription"
         return await self._async_request("POST", url, payload=data)
 
+    # Manual cleanup only (see note above get_subscriptions_c2c_notifications).
     async def delete_subscribe_c2c_notifications(self, plant_id: str, subscription_id: str) -> dict[str, Any]:
         url = (
             f"{DEFAULT_API_BASE_URL}"

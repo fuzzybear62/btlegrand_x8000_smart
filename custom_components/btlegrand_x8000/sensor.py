@@ -29,7 +29,7 @@ from .coordinator import BticinoCoordinator
 
 _LOGGER = logging.getLogger(__name__)
 
-# Map for standardized mode values (Data Hygiene)
+# Standardized mode values.
 MODE_MAP = {
     "automatic": "automatic",
     "manual": "manual",
@@ -60,7 +60,6 @@ async def async_setup_entry(
     coordinator: BticinoCoordinator = hass.data[DOMAIN][config_entry.entry_id]
 
     # Debug log to indicate the setup start
-    # UPDATED: Log reflects the dynamic domain for clarity
     _LOGGER.debug("Setting up %s sensor platform", DOMAIN)
 
     # Use config data to iterate over selected thermostats.
@@ -104,18 +103,16 @@ async def async_setup_entry(
             )
         )
 
-        # NEW: Create per-thermostat API usage sensor for granular telemetry
+        # Create per-thermostat API usage sensor for granular telemetry
         entities.append(
             BticinoThermostatApiCountSensor(
                 coordinator, topology_id, thermostat_name
             )
         )
     
-    # --- NEW: Singleton API Counter Sensor (Engineering Solution) ---
+    # Singleton diagnostic sensors: total API count and skipped-poll count.
     entities.append(BticinoApiCountSensor(coordinator))
-    # NEW: Singleton Skipped Polls Sensor (Smart Polling Diagnostics)
     entities.append(BticinoSkippedPollsSensor(coordinator))
-    # ---------------------------------------------------------------
 
     _LOGGER.debug("Total entities to add: %d", len(entities))
 
@@ -146,7 +143,6 @@ class BticinoBaseSensor(CoordinatorEntity, SensorEntity):
         return DeviceInfo(
             identifiers={(DOMAIN, self._topology_id)},
             name=self._thermostat_name,
-            # UPDATED: Changed manufacturer to indicate the source integration
             manufacturer="BtLegrand",
             model="X8000",
             via_device=(DOMAIN, self._plant_id),
@@ -219,13 +215,12 @@ class BticinoTemperatureSensor(BticinoBaseSensor):
 
     _attr_device_class = SensorDeviceClass.TEMPERATURE
     _attr_native_unit_of_measurement = UnitOfTemperature.CELSIUS
-    # FIX 1: Added state_class to enable Long Term Statistics (LTS)
+    # Added state_class to enable Long Term Statistics (LTS)
     _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_name = "Temperature"
 
     def __init__(self, coordinator, plant_id, topology_id, thermostat_name):
         super().__init__(coordinator, plant_id, topology_id, thermostat_name)
-        # UPDATED: Use dynamic DOMAIN for unique_id
         self._attr_unique_id = f"{DOMAIN}_{topology_id}_temperature"
 
     @property
@@ -258,13 +253,12 @@ class BticinoHumiditySensor(BticinoBaseSensor):
 
     _attr_device_class = SensorDeviceClass.HUMIDITY
     _attr_native_unit_of_measurement = PERCENTAGE
-    # FIX 1: Added state_class to enable Long Term Statistics (LTS)
+    # Added state_class to enable Long Term Statistics (LTS)
     _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_name = "Humidity"
 
     def __init__(self, coordinator, plant_id, topology_id, thermostat_name):
         super().__init__(coordinator, plant_id, topology_id, thermostat_name)
-        # UPDATED: Use dynamic DOMAIN for unique_id
         self._attr_unique_id = f"{DOMAIN}_{topology_id}_humidity"
 
     @property
@@ -296,13 +290,12 @@ class BticinoTargetTemperatureSensor(BticinoBaseSensor):
 
     _attr_device_class = SensorDeviceClass.TEMPERATURE
     _attr_native_unit_of_measurement = UnitOfTemperature.CELSIUS
-    # FIX 1: Added state_class to enable Long Term Statistics (LTS)
+    # Added state_class to enable Long Term Statistics (LTS)
     _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_name = "Target Temperature"
 
     def __init__(self, coordinator, plant_id, topology_id, thermostat_name):
         super().__init__(coordinator, plant_id, topology_id, thermostat_name)
-        # UPDATED: Use dynamic DOMAIN for unique_id
         self._attr_unique_id = f"{DOMAIN}_{topology_id}_target_temperature"
 
     @property
@@ -345,7 +338,6 @@ class BticinoProgramSensor(BticinoBaseSensor):
     ) -> None:
         """Initialize."""
         super().__init__(coordinator, plant_id, topology_id, thermostat_name)
-        # UPDATED: Use dynamic DOMAIN for unique_id
         self._attr_unique_id = f"{DOMAIN}_{topology_id}_current_program"
         self._programs = programs
 
@@ -379,9 +371,7 @@ class BticinoProgramSensor(BticinoBaseSensor):
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
-        """
-        IMPROVEMENT (Final Polish): Added raw attributes for full consistency.
-        """
+        """Return the raw payload as attributes when debug logging is enabled."""
         if not _LOGGER.isEnabledFor(logging.DEBUG):
             return {}
             
@@ -398,7 +388,6 @@ class BticinoModeSensor(BticinoBaseSensor):
 
     def __init__(self, coordinator, plant_id, topology_id, thermostat_name):
         super().__init__(coordinator, plant_id, topology_id, thermostat_name)
-        # UPDATED: Use dynamic DOMAIN for unique_id
         self._attr_unique_id = f"{DOMAIN}_{topology_id}_mode"
 
     @property
@@ -427,7 +416,6 @@ class BticinoStatusSensor(BticinoBaseSensor):
 
     def __init__(self, coordinator, plant_id, topology_id, thermostat_name):
         super().__init__(coordinator, plant_id, topology_id, thermostat_name)
-        # UPDATED: Use dynamic DOMAIN for unique_id
         self._attr_unique_id = f"{DOMAIN}_{topology_id}_status"
 
     @property
@@ -458,12 +446,11 @@ class BticinoBoostTimeRemainingSensor(BticinoBaseSensor):
 
     def __init__(self, coordinator, plant_id, topology_id, thermostat_name):
         super().__init__(coordinator, plant_id, topology_id, thermostat_name)
-        # UPDATED: Use dynamic DOMAIN for unique_id
         self._attr_unique_id = f"{DOMAIN}_{topology_id}_boost_time_remaining"
 
     @property
     def available(self) -> bool:
-        # FIX 2: UX Improvement
+        # UX Improvement
         # Always available, so it shows 0 when inactive instead of "Unavailable"
         if not super().available:
             return False
@@ -477,7 +464,7 @@ class BticinoBoostTimeRemainingSensor(BticinoBaseSensor):
         # Check if we are in boost mode
         mode = data.get("mode", "").lower()
         
-        # FIX 2: UX Improvement
+        # UX Improvement
         # If not in boost mode, return 0 immediately instead of None.
         if mode != "boost" or "activationTime" not in data:
             return 0
@@ -534,7 +521,6 @@ class BticinoApiCountSensor(CoordinatorEntity, SensorEntity):
 
     def __init__(self, coordinator: BticinoCoordinator):
         super().__init__(coordinator)
-        # UPDATED: Use dynamic DOMAIN for unique_id
         self._attr_unique_id = f"{DOMAIN}_api_count_{coordinator.entry.entry_id}"
 
     @property
@@ -542,7 +528,6 @@ class BticinoApiCountSensor(CoordinatorEntity, SensorEntity):
         """Create a Virtual Device for the Cloud Service."""
         return DeviceInfo(
             identifiers={(DOMAIN, self.coordinator.entry.entry_id)},
-            # UPDATED: Renamed to distinguish from original integration
             name="BtLegrand Service",
             manufacturer="BtLegrand",
             model="API Gateway",
@@ -598,7 +583,6 @@ class BticinoSkippedPollsSensor(CoordinatorEntity, SensorEntity):
 
     def __init__(self, coordinator: BticinoCoordinator):
         super().__init__(coordinator)
-        # UPDATED: Use dynamic DOMAIN for unique_id
         self._attr_unique_id = f"{DOMAIN}_skipped_polls_{coordinator.entry.entry_id}"
 
     @property
@@ -606,7 +590,6 @@ class BticinoSkippedPollsSensor(CoordinatorEntity, SensorEntity):
         """Link to the Cloud Service device."""
         return DeviceInfo(
             identifiers={(DOMAIN, self.coordinator.entry.entry_id)},
-            # UPDATED: Renamed to distinguish from original integration
             name="BtLegrand Service",
             manufacturer="BtLegrand",
             model="API Gateway",
@@ -659,7 +642,6 @@ class BticinoThermostatApiCountSensor(CoordinatorEntity, SensorEntity):
         self._topology_id = topology_id
         self._thermostat_name = thermostat_name
         # Unique ID: bticino_api_count_deviceid
-        # UPDATED: Use dynamic DOMAIN for unique_id
         self._attr_unique_id = f"{DOMAIN}_api_count_{topology_id}"
         self._attr_name = "API Usage"
 

@@ -15,7 +15,6 @@ from homeassistant.util import dt as dt_util  # Added for diagnostic timestamps
 from .api import BticinoX8000Api, RateLimitError, AuthError, BticinoApiError
 from .const import (
     DOMAIN,
-    # NEW: Imports for dynamic configuration keys and defaults
     CONF_UPDATE_INTERVAL,
     DEFAULT_UPDATE_INTERVAL,
     CONF_COOL_DOWN,
@@ -24,13 +23,16 @@ from .const import (
     DEFAULT_DEBOUNCE,
     CONF_NOTIFY_ERRORS,
     DEFAULT_NOTIFY_ERRORS,
-    # FIX: Import Daily Quota keys
     CONF_BTLG_DAILY_QUOTA,
     DEFAULT_BTLG_DAILY_QUOTA,
-    # NEW: Smart Polling Constants
     CONF_SMART_POLLING,
     DEFAULT_SMART_POLLING,
     PASSIVE_POLLING_MULTIPLIER,
+    # Adaptive API-budget throttling tiers
+    BUDGET_ECONOMY_THRESHOLD,
+    BUDGET_SURVIVAL_THRESHOLD,
+    ECONOMY_ACTIVE_INTERVAL_MIN,
+    SURVIVAL_ACTIVE_INTERVAL_MIN,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -53,8 +55,8 @@ class BticinoCoordinator(DataUpdateCoordinator):
         self.entry = entry
         self.plant_map: dict[str, list[str]] = {}
         
-        # --- NEW: Load Dynamic Configuration (Architecture as Data) ---
-        
+        # Load tuning configuration from entry.options (falling back to defaults).
+
         # 1. Update Interval (Normal polling)
         # Read from Options (user settings), fallback to Default (15 min)
         update_minutes = entry.options.get(CONF_UPDATE_INTERVAL, DEFAULT_UPDATE_INTERVAL)
@@ -75,7 +77,7 @@ class BticinoCoordinator(DataUpdateCoordinator):
 
         # 5. Daily API Quota (Smart Scheduling)
         # Read from Options, fallback to Default (500 calls)
-        # FIX: This enables the 'Daily API Quota' number entity to work.
+        # This enables the 'Daily API Quota' number entity to work.
         self.daily_api_quota = entry.options.get(CONF_BTLG_DAILY_QUOTA, DEFAULT_BTLG_DAILY_QUOTA)
 
         # 6. Smart Energy Saving (Optimized Polling)
@@ -101,7 +103,6 @@ class BticinoCoordinator(DataUpdateCoordinator):
             hass,
             _LOGGER,
             name=DOMAIN,
-            # UPDATED: Use the dynamic variable, not the static constant
             update_interval=self.normal_interval,
         )
 
@@ -115,7 +116,7 @@ class BticinoCoordinator(DataUpdateCoordinator):
         # Diagnostic counter for Smart Polling efficiency
         self.skipped_count = 0
 
-        # IMPROVEMENT: Explicit flag for Rate Limit state.
+        # Explicit flag for Rate Limit state.
         # This allows other components (like number.py) to know if we are currently
         # in a "Ban" state without guessing based on interval times.
         self.in_cool_down = False
@@ -147,22 +148,30 @@ class BticinoCoordinator(DataUpdateCoordinator):
 
         if self.smart_polling_enabled:
             remaining = self.daily_api_quota - self.api.call_count
-            
-            # Thresholds: 
-            # < 40: Survival Mode (Quadruple intervals)
-            # < 100: Economy Mode (Double intervals)
-            
-            if remaining < 40:
-                current_interval_active = timedelta(minutes=60)
-                current_interval_passive = timedelta(minutes=240)
+
+            # Two throttling tiers as the daily budget runs low. Passive zones are
+            # always PASSIVE_POLLING_MULTIPLIER x slower than active ones.
+            if remaining < BUDGET_SURVIVAL_THRESHOLD:
+                current_interval_active = timedelta(minutes=SURVIVAL_ACTIVE_INTERVAL_MIN)
+                current_interval_passive = current_interval_active * PASSIVE_POLLING_MULTIPLIER
                 if _LOGGER.isEnabledFor(logging.WARNING):
-                    _LOGGER.warning("CRITICAL API BUDGET (%d left). Enforcing survival intervals (60m/240m).", remaining)
-            
-            elif remaining < 100:
-                current_interval_active = timedelta(minutes=30)
-                current_interval_passive = timedelta(minutes=120)
+                    _LOGGER.warning(
+                        "CRITICAL API BUDGET (%d left). Enforcing survival intervals (%dm/%dm).",
+                        remaining,
+                        SURVIVAL_ACTIVE_INTERVAL_MIN,
+                        SURVIVAL_ACTIVE_INTERVAL_MIN * PASSIVE_POLLING_MULTIPLIER,
+                    )
+
+            elif remaining < BUDGET_ECONOMY_THRESHOLD:
+                current_interval_active = timedelta(minutes=ECONOMY_ACTIVE_INTERVAL_MIN)
+                current_interval_passive = current_interval_active * PASSIVE_POLLING_MULTIPLIER
                 if _LOGGER.isEnabledFor(logging.INFO):
-                    _LOGGER.info("Low API Budget (%d left). Enforcing economy intervals (30m/120m).", remaining)
+                    _LOGGER.info(
+                        "Low API Budget (%d left). Enforcing economy intervals (%dm/%dm).",
+                        remaining,
+                        ECONOMY_ACTIVE_INTERVAL_MIN,
+                        ECONOMY_ACTIVE_INTERVAL_MIN * PASSIVE_POLLING_MULTIPLIER,
+                    )
         
         # --------------------------------------------------------
 
@@ -187,7 +196,7 @@ class BticinoCoordinator(DataUpdateCoordinator):
                     if last_data and last_update:
                         # Check status: "Active" (Heating/Cooling) vs "Passive" (Off)
                         mode = last_data.get("mode", "").lower()
-                        # UPDATED: Treat 'off' and 'protection' (antifrost) as passive
+                        # Treat 'off' and 'protection' (antifrost) as passive
                         is_passive = (mode in ["off", "protection"])
                         
                         # Calculate specific interval for this device using DYNAMIC intervals
@@ -227,7 +236,7 @@ class BticinoCoordinator(DataUpdateCoordinator):
 
                     if status_code == 200:
                         # SUCCESS: Check if we need to recover from Cool Down mode.
-                        # IMPROVEMENT: Check the explicit flag instead of comparing intervals.
+                        # Check the explicit flag instead of comparing intervals.
                         if self.in_cool_down:
                             _LOGGER.info("API request successful. Resetting update interval.")
                             
@@ -267,6 +276,14 @@ class BticinoCoordinator(DataUpdateCoordinator):
                     # For generic API errors (e.g. 500, timeout), we log but continue
                     # to the next device, as it might be a temporary single-device glitch.
                 
+                except UpdateFailed:
+                    # Our own abort (inline 429 at the top of this try, or the
+                    # AuthError handler) already fired the event / notification and
+                    # updated the listeners. Propagate it directly so the generic
+                    # net below does NOT re-run _trigger_rate_limit_abort and
+                    # double-fire the {DOMAIN}_event bus event.
+                    raise
+
                 except Exception as err:
                     # 3. SAFETY NET: Catch generic exceptions that look like Rate Limits.
                     # This fixes the issue where the loop continued if the exception type wasn't perfect
@@ -295,7 +312,7 @@ class BticinoCoordinator(DataUpdateCoordinator):
             topology_id, message
         )
         
-        # IMPROVEMENT: Set explicit state flag
+        # Set explicit state flag
         self.in_cool_down = True
         
         # 1. Fire Event for User Notification (Home Assistant Bus)
@@ -312,7 +329,7 @@ class BticinoCoordinator(DataUpdateCoordinator):
         )
 
         # 2. Create Persistent Notification (Directly visible in Dashboard)
-        # UPDATED: Only show if enabled in configuration
+        # Only show if enabled in configuration
         if self.notify_errors:
             # We use a GLOBAL ID (NOTIFICATION_ID) so we don't spam the user with multiple alerts.
             # This ensures the user sees the alert even if automations haven't loaded yet during boot.
@@ -330,10 +347,9 @@ class BticinoCoordinator(DataUpdateCoordinator):
 
         # 3. Set Cooldown Interval (Dynamic)
         # The next update will not happen for X minutes, letting the ban expire.
-        # UPDATED: Use the dynamic variable from configuration
         self.update_interval = self.cool_down_interval
         
-        # CRITICAL FIX: Update Diagnostic Sensors BEFORE raising exception.
+        # Update Diagnostic Sensors BEFORE raising exception.
         # This ensures the API Call Count in the UI reflects the failed attempt immediately,
         # instead of waiting for a successful cycle (which might be hours away).
         self.notify_listeners_only()
@@ -380,7 +396,7 @@ class BticinoCoordinator(DataUpdateCoordinator):
         # 1. Debounce Check
         # If webhooks arrive too fast (e.g., burst of slider movements), ignore them to save CPU.
         now = monotonic()
-        # UPDATED: Use dynamic debounce time from configuration
+        # Use dynamic debounce time from configuration
         if now - self._last_webhook_mono < self.debounce_time: 
             _LOGGER.debug("Webhook ignored (debounce active)")
             return
@@ -443,7 +459,7 @@ class BticinoCoordinator(DataUpdateCoordinator):
         if updated_count > 0:
             # Update diagnostic timestamp
             self._last_webhook_time = dt_util.utcnow()
-            _LOGGER.info("Webhook updated %d entities", updated_count)
+            _LOGGER.debug("Webhook updated %d entities", updated_count)
             # Notify listeners
             self.async_set_updated_data(self.data)
         else:

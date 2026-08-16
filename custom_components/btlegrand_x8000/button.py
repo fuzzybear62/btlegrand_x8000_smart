@@ -52,7 +52,6 @@ class BticinoForceTokenButton(CoordinatorEntity, ButtonEntity):
         """Initialize the button entity."""
         super().__init__(coordinator)
         # Unique ID generated from Entry ID to be globally unique
-        # UPDATED: Use dynamic DOMAIN for unique_id to support rebranding
         self._attr_unique_id = f"{DOMAIN}_force_token_{coordinator.entry.entry_id}"
 
     @property
@@ -60,7 +59,6 @@ class BticinoForceTokenButton(CoordinatorEntity, ButtonEntity):
         """Link this entity to the 'Bticino Cloud Service' virtual device."""
         return DeviceInfo(
             identifiers={(DOMAIN, self.coordinator.entry.entry_id)},
-            # UPDATED: Renamed to distinguish from original integration
             name="BtLegrand Service",
             manufacturer="BtLegrand",
             model="API Gateway",

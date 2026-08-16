@@ -1,7 +1,7 @@
 """Webhook handler for Bticino X8000."""
 
 import logging
-import secrets  # Added for request tracing
+import secrets
 
 from aiohttp.web import Request, Response
 from homeassistant.components.webhook import async_register as webhook_register
@@ -9,10 +9,6 @@ from homeassistant.components.webhook import async_unregister as webhook_unregis
 from homeassistant.core import HomeAssistant
 
 from .const import DOMAIN
-# Type checking import only to avoid circular dependency at runtime
-from typing import TYPE_CHECKING
-if TYPE_CHECKING:
-    from .coordinator import BticinoCoordinator
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -40,18 +36,18 @@ class BticinoX8000WebhookHandler:
             _LOGGER.error("Error parsing webhook JSON: %s", err)
             return Response(text="Bad Request", status=400)
 
-        # IMPROVEMENT: Request Tracing
+        # Request Tracing
         # Generate a short unique ID to trace this specific webhook event in logs
         request_id = secrets.token_hex(4)
 
-        # IMPROVEMENT: Strict Validation
+        # Strict Validation
         # Ensure payload is a dictionary to prevent AttributeErrors later
         if not isinstance(data, dict):
             _LOGGER.warning("[%s] Webhook payload is not a dictionary: %s", request_id, type(data))
             # Return 200 OK to acknowledge receipt and prevent retries from the server
             return Response(text="OK", status=200)
 
-        # IMPROVEMENT: Basic Content Filter
+        # Basic Content Filter
         # Check for expected keys to filter out noise/garbage
         if "chronothermostats" not in data and "data" not in data and "plant" not in data:
             _LOGGER.debug("[%s] Webhook ignored: Unrecognized structure", request_id)
@@ -75,7 +71,6 @@ class BticinoX8000WebhookHandler:
             if not found_coordinator:
                 _LOGGER.warning("[%s] Received webhook but no active coordinator found to handle it.", request_id)
         else:
-            # UPDATED: Use dynamic DOMAIN in log to support rebranding
             _LOGGER.warning("[%s] Received webhook but %s integration is not loaded.", request_id, DOMAIN)
 
         return Response(text="OK", status=200)
@@ -85,7 +80,6 @@ class BticinoX8000WebhookHandler:
         webhook_register(
             self.hass,
             DOMAIN,
-            # UPDATED: Rebranded Name for UI consistency
             "BtLegrand Smarther",
             self.webhook_id,
             self.handle_webhook,

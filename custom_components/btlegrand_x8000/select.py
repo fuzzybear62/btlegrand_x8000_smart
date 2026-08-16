@@ -78,7 +78,6 @@ class BticinoBaseSelect(CoordinatorEntity, SelectEntity):
         return DeviceInfo(
             identifiers={(DOMAIN, self._topology_id)},
             name=self._thermostat_name,
-            # UPDATED: Changed manufacturer to indicate the source integration
             manufacturer="BtLegrand",
             model="X8000",
         )
@@ -133,10 +132,8 @@ class BticinoBoostSelect(BticinoBaseSelect):
         programs,
     ) -> None:
         """Initialize."""
-        # BUGFIX: Removed 'programs' from super().__init__ call
         super().__init__(coordinator, plant_id, topology_id, thermostat_name)
         
-        # UPDATED: Use dynamic DOMAIN for unique_id to support rebranding
         self._attr_unique_id = f"{DOMAIN}_{topology_id}_boost"
         self._programs = programs
         # Initial state calculation
@@ -171,7 +168,7 @@ class BticinoBoostSelect(BticinoBaseSelect):
         if mode == "boost" and "activationTime" in data:
             activation_time = data["activationTime"]
             
-            # IMPROVEMENT: Robust Parsing with try/except
+            # Robust Parsing with try/except
             try:
                 # Logic to guess original boost duration based on time remaining or start/end
                 if "/" in activation_time:
@@ -209,7 +206,7 @@ class BticinoBoostSelect(BticinoBaseSelect):
         if option == self.current_option:
             return
 
-        # IMPROVEMENT: Cooldown Protection
+        # Cooldown Protection
         if getattr(self.coordinator, "in_cool_down", False):
             _LOGGER.warning("Command ignored: Integration is in Cool Down (Rate Limit)")
             return
@@ -255,7 +252,7 @@ class BticinoBoostSelect(BticinoBaseSelect):
             }
             _LOGGER.info("Activating boost %s min for %s", option, self._thermostat_name)
 
-        # IMPROVEMENT: Optimistic Update
+        # Optimistic Update
         self._attr_current_option = option
         self.async_write_ha_state()
 
@@ -266,7 +263,7 @@ class BticinoBoostSelect(BticinoBaseSelect):
             )
         except Exception as e:
             _LOGGER.error("Failed to set boost option: %s", e)
-            # IMPROVEMENT: Revert on Failure
+            # Revert on Failure
             self._update_state_from_coordinator()
             self.async_write_ha_state()
         
@@ -289,10 +286,8 @@ class BticinoProgramSelect(BticinoBaseSelect):
         programs,
     ) -> None:
         """Initialize."""
-        # BUGFIX: Removed 'programs' from super().__init__ call
         super().__init__(coordinator, plant_id, topology_id, thermostat_name)
         
-        # UPDATED: Use dynamic DOMAIN for unique_id to support rebranding
         self._attr_unique_id = f"{DOMAIN}_{topology_id}_program"
         self._programs = programs
         self._attr_options = [prog["name"] for prog in programs]
@@ -331,7 +326,7 @@ class BticinoProgramSelect(BticinoBaseSelect):
             _LOGGER.error("Program %s not found", option)
             return
 
-        # IMPROVEMENT: Cooldown Protection
+        # Cooldown Protection
         if getattr(self.coordinator, "in_cool_down", False):
             _LOGGER.warning("Command ignored: Integration is in Cool Down (Rate Limit)")
             return
@@ -346,7 +341,7 @@ class BticinoProgramSelect(BticinoBaseSelect):
         
         _LOGGER.info("Setting program %s for %s", option, self._thermostat_name)
 
-        # IMPROVEMENT: Optimistic Update
+        # Optimistic Update
         self._attr_current_option = option
         self.async_write_ha_state()
 
@@ -356,7 +351,7 @@ class BticinoProgramSelect(BticinoBaseSelect):
             )
         except Exception as e:
             _LOGGER.error("Failed to set program: %s", e)
-            # IMPROVEMENT: Revert on Failure
+            # Revert on Failure
             self._update_state_from_coordinator()
             self.async_write_ha_state()
 

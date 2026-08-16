@@ -59,7 +59,7 @@ class BticinoX8000ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             return self.async_abort(reason="single_instance_allowed")
 
         if user_input is not None:
-            # IMPROVEMENT: Basic validation for empty fields
+            # Basic validation for empty fields
             for key, value in user_input.items():
                 if isinstance(value, str) and not value.strip():
                     errors[key] = "value_empty"
@@ -68,7 +68,7 @@ class BticinoX8000ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 self.data = user_input
                 authorization_url = self.get_authorization_url(user_input)
                 
-                # IMPROVEMENT (UX): Move Auth URL to description_placeholders
+                # Move Auth URL to description_placeholders
                 # instead of showing it as an error message.
                 return self.async_show_form(
                     step_id="get_authorize_code",
@@ -166,7 +166,7 @@ class BticinoX8000ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 if not await self.bticino_api.check_api_endpoint_health():
                     return self.async_abort(reason="Auth Failed! API endpoint unreachable.")
 
-                # IMPROVEMENT: Fetch plants with Timeout & Robust Parsing
+                # Fetch plants with Timeout & Robust Parsing
                 try:
                     async with asyncio.timeout(API_TIMEOUT):
                         plants_data = await self.bticino_api.get_plants()
@@ -198,7 +198,7 @@ class BticinoX8000ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
                 for plant_id in plant_ids:
                     try:
-                        # IMPROVEMENT: Timeout for Topology
+                        # Timeout for Topology
                         async with asyncio.timeout(API_TIMEOUT):
                             topologies = await self.bticino_api.get_topology(plant_id)
                         
@@ -223,14 +223,14 @@ class BticinoX8000ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                                 
                             thermo_name = thermo.get("name", "Unknown")
                             
-                            # IMPROVEMENT: Fetch programs with safe timeout handling inside helper
+                            # Fetch programs with safe timeout handling inside helper
                             try:
                                 programs = await self.get_programs_from_api(plant_id, thermo["id"])
                             except Exception:
                                 _LOGGER.warning("Could not fetch programs for %s", thermo_name)
                                 programs = []
 
-                            # IMPROVEMENT (UX): Disambiguate names by adding Plant ID
+                            # Disambiguate names by adding Plant ID
                             display_name = f"{thermo_name} (Plant {plant_id})"
                             
                             self._selection_map[display_name] = {
@@ -267,7 +267,7 @@ class BticinoX8000ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 _LOGGER.error("Auth flow error: %s", error)
                 errors["base"] = "auth_callback_error"
                 # Fall through to show form again
-            except Exception as e:
+            except Exception:
                 _LOGGER.exception("Unexpected error in auth flow")
                 return self.async_abort(reason="unknown_error")
 
@@ -323,9 +323,9 @@ class BticinoX8000ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     async def async_step_select_thermostats(
         self, user_input: dict[str, Any]
     ) -> config_entries.ConfigFlowResult:
-        """User can select one o more thermostat to add."""
+        """Let the user select one or more thermostats to add."""
         
-        # IMPROVEMENT: Reconstruct structure using the Selection Map
+        # Reconstruct structure using the Selection Map
         # This properly maps the selected "Display Names" back to the full data objects
         # and groups them by plant_id as expected by the integration structure.
         
@@ -343,7 +343,6 @@ class BticinoX8000ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 final_selection.append({plant_id: thermo_data})
 
         return self.async_create_entry(
-            # UPDATED: Use the new Brand Name for the entry title
             title="Legrand/Bticino Smarther x8000 NOT Netatmo (Smart Adaptive API Calls)",
             data={
                 "client_id": self.data["client_id"],
