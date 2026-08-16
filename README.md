@@ -496,8 +496,9 @@ historical — ships under [`dashboards/`](dashboards/):
 green→amber→red at the Economy/Survival/over-budget thresholds), plus tiles for the
 current **Polling Tier** and **skips**; (2) *today's dynamics* — a **tier timeline**
 (mapped to throttle depth off→frozen) and a **projected-vs-used-vs-quota** chart; (3)
-*last 30 days* — **calls/day vs quota** and **skips/day**, plus a **per-device donut**
-of today's call share (one slice per thermostat).
+*last 30 days* — **calls/day vs quota** and **skips/day**. Per-device usage is left
+to native HA **tiles** (see below), which read better in a Sections/grid view than a
+custom per-device chart.
 
 **Prerequisites.**
 
@@ -512,10 +513,20 @@ section's ⋮ → **Edit in YAML** → paste the contents of `diagnostics_sectio
 
 **Adjust entity ids.** The YAML assumes the default service device name
 *"BtLegrand Service"* (e.g. `sensor.btlegrand_service_api_call_count`); the ids are
-grouped in a comment header for quick find/replace. The **per-device** stacked chart
-has one series per thermostat (`sensor.<thermostat>_api_usage`) — edit that series
-list to match your rooms (add/remove a slice per device).
+grouped in a comment header for quick find/replace.
 Verify every id under **Developer Tools → States** (filter `btlegrand`).
+
+**Per-device usage.** Each thermostat exposes a `sensor.<thermostat>_api_usage`
+counter (today's calls that hit *that* device). Rather than cramming all of them into
+one chart, drop a native **tile** card per room straight into the Sections grid — it's
+clearer and needs no extra dependency:
+
+```yaml
+- type: tile
+  entity: sensor.cucina_api_usage
+  name: Cucina
+  icon: mdi:thermostat
+```
 
 > **Data lag.** The *today* charts read state history and populate immediately. The
 > *30-day* charts read Home Assistant long-term statistics, so they fill in from the
