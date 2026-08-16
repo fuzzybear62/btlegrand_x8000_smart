@@ -25,8 +25,8 @@
 #     number.btlegrand_service_daily_api_quota       (tunable quota)
 #     sensor.btlegrand_api_budget_used               (helper, from templates file)
 #     sensor.btlegrand_api_projected_used            (helper, from templates file)
-#   PER-DEVICE (one per thermostat), used in the stacked chart:
-#     sensor.<thermostat>_api_usage
+#   PER-DEVICE (one per thermostat), used in the donut chart:
+#     sensor.<thermostat>_api_usage   (one slice per device; edit the series list)
 # =============================================================================
 
 type: grid
@@ -272,35 +272,73 @@ cards:
           const q = Number(hass.states['number.btlegrand_service_daily_api_quota'].state) || 500;
           return [[start.getTime(), q], [end.getTime(), q]];
 
-  # --- Per-device usage per day (stacked). ADD ONE SERIES PER THERMOSTAT. ----
+  # --- Per-device share of TODAY's calls (donut) ----------------------------
+  # A donut reads far better than a 7-way stacked column: one slice per room,
+  # with the legend + percentages showing who is spending the budget today.
+  # The 30-day FLEET trend is already the "Chiamate API al giorno" chart above,
+  # so this stays a clean per-device breakdown instead of duplicating it.
+  # One series per thermostat; each slice = that device's cumulative calls today
+  # (the sensor resets at local midnight, so its current value IS today's total).
   - type: custom:apexcharts-card
     grid_options:
       columns: 12
     header:
       show: true
-      title: Chiamate per dispositivo / giorno
-    graph_span: 30d
-    stacked: true
+      title: Quota di oggi per dispositivo
+    chart_type: donut
+    graph_span: 1d
+    span:
+      start: day
     apex_config:
       chart:
-        stacked: true
-    yaxis:
-      - min: 0
-        decimals: 0
+        height: 320
+      legend:
+        position: right
+      dataLabels:
+        enabled: true
     series:
-      # Duplicate this block for every thermostat, fixing the entity id + name.
-      - entity: sensor.termostato_1_api_usage
-        name: Termostato 1
-        type: column
-        statistics:
-          type: change
-          period: day
-      - entity: sensor.termostato_2_api_usage
-        name: Termostato 2
-        type: column
-        statistics:
-          type: change
-          period: day
+      - entity: sensor.bagno_ospiti_api_usage
+        name: Bagno ospiti
+        color: "#5c6bc0"
+        group_by:
+          func: last
+          duration: 1d
+      - entity: sensor.bagno_padronale_api_usage
+        name: Bagno padronale
+        color: "#42a5f5"
+        group_by:
+          func: last
+          duration: 1d
+      - entity: sensor.camera_carlo_api_usage
+        name: Camera Carlo
+        color: "#26a69a"
+        group_by:
+          func: last
+          duration: 1d
+      - entity: sensor.camera_edo_api_usage
+        name: Camera Edo
+        color: "#66bb6a"
+        group_by:
+          func: last
+          duration: 1d
+      - entity: sensor.camera_padronale_api_usage
+        name: Camera padronale
+        color: "#ffa726"
+        group_by:
+          func: last
+          duration: 1d
+      - entity: sensor.cucina_api_usage
+        name: Cucina
+        color: "#ef5350"
+        group_by:
+          func: last
+          duration: 1d
+      - entity: sensor.sala_api_usage
+        name: Sala
+        color: "#ab47bc"
+        group_by:
+          func: last
+          duration: 1d
 
   # --- Skips per day (efficiency trend) -------------------------------------
   - type: custom:apexcharts-card

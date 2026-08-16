@@ -496,7 +496,8 @@ historical — ships under [`dashboards/`](dashboards/):
 green→amber→red at the Economy/Survival/over-budget thresholds), plus tiles for the
 current **Polling Tier** and **skips**; (2) *today's dynamics* — a **tier timeline**
 (mapped to throttle depth off→frozen) and a **projected-vs-used-vs-quota** chart; (3)
-*last 30 days* — **calls/day vs quota**, **per-device** stacked usage, and **skips/day**.
+*last 30 days* — **calls/day vs quota** and **skips/day**, plus a **per-device donut**
+of today's call share (one slice per thermostat).
 
 **Prerequisites.**
 
@@ -512,8 +513,8 @@ section's ⋮ → **Edit in YAML** → paste the contents of `diagnostics_sectio
 **Adjust entity ids.** The YAML assumes the default service device name
 *"BtLegrand Service"* (e.g. `sensor.btlegrand_service_api_call_count`); the ids are
 grouped in a comment header for quick find/replace. The **per-device** stacked chart
-has two example series (`sensor.termostato_1_api_usage`, …) — duplicate one series
-block per thermostat and point it at your real `sensor.<thermostat>_api_usage` id.
+has one series per thermostat (`sensor.<thermostat>_api_usage`) — edit that series
+list to match your rooms (add/remove a slice per device).
 Verify every id under **Developer Tools → States** (filter `btlegrand`).
 
 > **Data lag.** The *today* charts read state history and populate immediately. The
