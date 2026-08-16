@@ -36,9 +36,10 @@ volume stays inside the quota.
 6. [Core Logic & Algorithms](#core-logic--algorithms)
 7. [Entities](#entities)
 8. [Diagnostics](#diagnostics)
-9. [Logging](#logging)
-10. [Troubleshooting](#troubleshooting)
-11. [Disclaimer](#disclaimer)
+9. [Diagnostics dashboard](#diagnostics-dashboard)
+10. [Logging](#logging)
+11. [Troubleshooting](#troubleshooting)
+12. [Disclaimer](#disclaimer)
 
 ---
 
@@ -477,6 +478,48 @@ because dividing by a tiny elapsed-fraction would be wildly noisy.
 
 Raw device payloads are exposed via each entity's `extra_state_attributes` **only
 when the integration logger is at `DEBUG`** — they are debug aids, not normal state.
+
+---
+
+## Diagnostics dashboard
+
+A ready-made **Sections** view that visualises the diagnostics above — live *and*
+historical — ships under [`dashboards/`](dashboards/):
+
+- [`dashboards/diagnostics_section.yaml`](dashboards/diagnostics_section.yaml) — the
+  dashboard section (paste into a Sections view).
+- [`dashboards/diagnostics_templates.yaml`](dashboards/diagnostics_templates.yaml) —
+  two helper template sensors.
+
+**What it shows.** Three bands: (1) *today at a glance* — two radial gauges for
+**budget used** and **projected** usage (both as a % of the quota, colour-shifting
+green→amber→red at the Economy/Survival/over-budget thresholds), plus tiles for the
+current **Polling Tier** and **skips**; (2) *today's dynamics* — a **tier timeline**
+(mapped to throttle depth off→frozen) and a **projected-vs-used-vs-quota** chart; (3)
+*last 30 days* — **calls/day vs quota**, **per-device** stacked usage, and **skips/day**.
+
+**Prerequisites.**
+
+1. **ApexCharts Card** from HACS ([RomRider/apexcharts-card](https://github.com/RomRider/apexcharts-card)) — the whole section is built on it.
+2. The two helper sensors: merge `diagnostics_templates.yaml` into your
+   `configuration.yaml` (`template:` block) and restart / reload templates. They
+   express usage as a percentage of the *live* Daily API Quota, so the gauges stay
+   correct even after you retune the quota.
+
+**Install.** Edit a dashboard → open a *Sections* view → **＋ Add section** → the
+section's ⋮ → **Edit in YAML** → paste the contents of `diagnostics_section.yaml`.
+
+**Adjust entity ids.** The YAML assumes the default service device name
+*"BtLegrand Service"* (e.g. `sensor.btlegrand_service_api_call_count`); the ids are
+grouped in a comment header for quick find/replace. The **per-device** stacked chart
+has two example series (`sensor.termostato_1_api_usage`, …) — duplicate one series
+block per thermostat and point it at your real `sensor.<thermostat>_api_usage` id.
+Verify every id under **Developer Tools → States** (filter `btlegrand`).
+
+> **Data lag.** The *today* charts read state history and populate immediately. The
+> *30-day* charts read Home Assistant long-term statistics, so they fill in from the
+> moment statistics begin accumulating (roughly hourly) — a brand-new install shows
+> them building up over the first day.
 
 ---
 

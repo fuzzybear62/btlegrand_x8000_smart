@@ -1,0 +1,40 @@
+# =============================================================================
+# BtLegrand X8000 — quota-aware helper sensors for the diagnostics dashboard
+# =============================================================================
+# These two template sensors express usage as a PERCENTAGE of the *live* Daily
+# API Quota (a tunable number entity). Because they divide by the quota entity,
+# the gauges built on them stay correct even if you change the quota later —
+# something a native gauge with a hardcoded `max` cannot do.
+#
+# INSTALL: merge this `template:` block into your configuration.yaml (or, if you
+# already split it out, add the two sensors to your existing template file),
+# then restart Home Assistant / reload template entities.
+#
+# ADJUST THE ENTITY IDS below to match your instance if they differ. Check them
+# under Developer Tools -> States (filter: "btlegrand"). With the default device
+# name "BtLegrand Service" they are the ones used here.
+# =============================================================================
+
+template:
+  - sensor:
+      # % of today's quota already consumed (0..100+). Drives the "Budget oggi" gauge.
+      - name: "BtLegrand API Budget Used"
+        unique_id: btlegrand_api_budget_pct
+        unit_of_measurement: "%"
+        state_class: measurement
+        icon: mdi:gauge
+        state: >
+          {% set used  = states('sensor.btlegrand_service_api_call_count') | float(0) %}
+          {% set quota = states('number.btlegrand_service_daily_api_quota') | float(500) %}
+          {{ (used / quota * 100) | round(1) if quota > 0 else 0 }}
+
+      # % of quota we are PROJECTED to reach by midnight (0..100+, >100 = over budget).
+      - name: "BtLegrand API Projected Used"
+        unique_id: btlegrand_projected_pct
+        unit_of_measurement: "%"
+        state_class: measurement
+        icon: mdi:chart-line
+        state: >
+          {% set proj  = states('sensor.btlegrand_service_projected_daily_calls') | float(0) %}
+          {% set quota = states('number.btlegrand_service_daily_api_quota') | float(500) %}
+          {{ (proj / quota * 100) | round(1) if quota > 0 else 0 }}
