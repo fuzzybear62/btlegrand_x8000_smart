@@ -5,6 +5,7 @@ import logging
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import device_registry as dr
 # Import the correct exception that blocks the restart loop
 from homeassistant.exceptions import ConfigEntryNotReady
 
@@ -108,6 +109,37 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # 7. Forward setup to platforms
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     
+    return True
+
+
+async def async_remove_config_entry_device(
+    hass: HomeAssistant,
+    config_entry: ConfigEntry,
+    device_entry: dr.DeviceEntry,
+) -> bool:
+    """Allow deleting a device from the UI only if it is orphaned.
+
+    After a device re-selection (reconfigure_devices) the de-selected
+    thermostats are no longer recreated and show as "unavailable". This lets
+    the user remove such a device with one click. Devices that are still
+    selected - and the shared service device (identified by the entry id) -
+    are never removable, so an accidental deletion of an active device is
+    rejected.
+    """
+    selected_ids = {
+        list(plant_data.values())[0].get("id")
+        for plant_data in config_entry.data.get("selected_thermostats", [])
+        if list(plant_data.values())[0].get("id")
+    }
+    for domain, identifier in device_entry.identifiers:
+        if domain != DOMAIN:
+            continue
+        # Shared service device (DOMAIN, entry_id): never removable.
+        if identifier == config_entry.entry_id:
+            return False
+        # Active thermostat (DOMAIN, topology_id): still selected -> keep.
+        if identifier in selected_ids:
+            return False
     return True
 
 

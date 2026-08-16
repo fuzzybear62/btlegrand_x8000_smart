@@ -62,7 +62,11 @@ class BticinoX8000ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         """
         return self.async_show_menu(
             step_id="reconfigure",
-            menu_options=["reconfigure_url", "reconfigure_credentials"],
+            menu_options=[
+                "reconfigure_url",
+                "reconfigure_credentials",
+                "reconfigure_devices",
+            ],
         )
 
     async def async_step_reconfigure_url(
@@ -178,6 +182,228 @@ class BticinoX8000ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             ),
             errors=errors,
         )
+
+    async def async_step_reconfigure_devices(
+        self, user_input: dict[str, Any] | None = None
+    ) -> config_entries.ConfigFlowResult:
+        """Re-select which thermostats are exposed, adding and/or removing.
+
+        Thermostats are frozen in ``entry.data["selected_thermostats"]`` at
+        install, so a device added or removed in the Legrand app is not picked
+        up on reload. This step re-discovers the live topology (reusing the
+        already-loaded API client and its current tokens - no OAuth needed) and
+        lets the user re-pick, with the currently-selected ones pre-checked.
+
+        Add is automatic on reload (new entities; a new plant is auto-subscribed
+        by setup). For removals we only touch what is safe without a test: the
+        C2C subscription of any plant that drops out *entirely* is deleted
+        (reversible - re-selecting re-subscribes on reload). The now-orphaned
+        HA device/entities are left as "unavailable" and can be removed by the
+        user from the UI (see ``async_remove_config_entry_device``); nothing is
+        force-deleted from the registry here.
+        """
+        entry = self.hass.config_entries.async_get_entry(self.context["entry_id"])
+        if entry is None:
+            return self.async_abort(reason="unknown")
+
+        coordinator = self.hass.data.get(DOMAIN, {}).get(entry.entry_id)
+        api = getattr(coordinator, "api", None)
+        if api is None:
+            # Integration not loaded -> no fresh API client to discover with.
+            return self.async_abort(reason="unknown")
+
+        if user_input is None:
+            # Discover the live topology across every plant on the account.
+            self.bticino_api = api
+            self._selection_map = {}
+            try:
+                async with asyncio.timeout(API_TIMEOUT):
+                    plants_data = await api.get_plants()
+            except asyncio.TimeoutError:
+                return self.async_abort(reason="unknown")
+
+            if plants_data.get("status_code") != 200:
+                _LOGGER.error("Reconfigure devices: get_plants failed: %s", plants_data)
+                return self.async_abort(reason="unknown")
+
+            plants_payload = plants_data.get("data", {})
+            if isinstance(plants_payload, dict):
+                plants_list = plants_payload.get("plants", [])
+            elif isinstance(plants_payload, list):
+                plants_list = plants_payload
+            else:
+                plants_list = []
+
+            plant_ids = list({p.get("id") for p in plants_list if p.get("id")})
+            for plant_id in plant_ids:
+                try:
+                    async with asyncio.timeout(API_TIMEOUT):
+                        topologies = await api.get_topology(plant_id)
+                    if topologies.get("status_code") != 200:
+                        continue
+                    topo_data = topologies.get("data", {})
+                    modules = []
+                    if "plant" in topo_data and isinstance(topo_data["plant"], dict):
+                        modules = topo_data["plant"].get("modules", [])
+                    elif "modules" in topo_data:
+                        modules = topo_data.get("modules", [])
+                    elif isinstance(topo_data, list):
+                        modules = topo_data
+
+                    for thermo in modules:
+                        if not isinstance(thermo, dict) or "id" not in thermo:
+                            continue
+                        thermo_name = thermo.get("name", "Unknown")
+                        try:
+                            programs = await self.get_programs_from_api(
+                                plant_id, thermo["id"]
+                            )
+                        except Exception:  # noqa: BLE001
+                            programs = []
+                        display_name = f"{thermo_name} (Plant {plant_id})"
+                        self._selection_map[display_name] = {
+                            "id": thermo["id"],
+                            "name": thermo_name,
+                            "programs": programs,
+                            "plant_id": plant_id,
+                        }
+                except asyncio.TimeoutError:
+                    _LOGGER.warning(
+                        "Reconfigure devices: timeout on plant %s", plant_id
+                    )
+                    continue
+                except Exception as err:  # noqa: BLE001
+                    _LOGGER.error(
+                        "Reconfigure devices: error on plant %s: %s", plant_id, err
+                    )
+                    continue
+
+            if not self._selection_map:
+                return self.async_abort(reason="No compatible thermostats found.")
+
+            # Pre-check the currently-selected thermostats, keyed on topology id
+            # (so a rename in the Legrand app does not un-check them).
+            current_ids = {
+                list(pd.values())[0].get("id")
+                for pd in entry.data.get("selected_thermostats", [])
+                if list(pd.values())[0].get("id")
+            }
+            default_selection = [
+                dn for dn, d in self._selection_map.items() if d["id"] in current_ids
+            ]
+
+            return self.async_show_form(
+                step_id="reconfigure_devices",
+                data_schema=vol.Schema(
+                    {
+                        vol.Required(
+                            "selected_thermostats", default=default_selection
+                        ): cv.multi_select(list(self._selection_map.keys())),
+                    }
+                ),
+            )
+
+        # Submit: rebuild the selection, preserving unchanged entries verbatim
+        # (keeps their webhook_id and avoids churn) and minting new ones only
+        # for newly-added thermostats.
+        existing_by_id: dict[str, Any] = {}
+        for plant_data in entry.data.get("selected_thermostats", []):
+            thermo = list(plant_data.values())[0]
+            if thermo.get("id"):
+                existing_by_id[thermo["id"]] = plant_data
+
+        final_selection: list[dict[str, Any]] = []
+        for display_name in user_input["selected_thermostats"]:
+            data = self._selection_map.get(display_name)
+            if not data:
+                continue
+            tid = data["id"]
+            if tid in existing_by_id:
+                final_selection.append(existing_by_id[tid])
+            else:
+                plant_id = data["plant_id"]
+                final_selection.append(
+                    {
+                        plant_id: {
+                            "id": data["id"],
+                            "name": data["name"],
+                            "programs": data["programs"],
+                            "webhook_id": generate_id(),
+                        }
+                    }
+                )
+
+        # Delete C2C subscriptions for plants that no longer have any selected
+        # thermostat (best-effort, reversible). Plants that still keep at least
+        # one thermostat are left untouched (the subscription is per-plant).
+        old_plants = {
+            list(pd.keys())[0] for pd in entry.data.get("selected_thermostats", [])
+        }
+        new_plants = {list(pd.keys())[0] for pd in final_selection}
+        dropped_plants = old_plants - new_plants
+        if dropped_plants:
+            await self._async_delete_plant_subscriptions(
+                api, dropped_plants, entry.data.get("external_url", "")
+            )
+
+        return self.async_update_reload_and_abort(
+            entry,
+            data={**entry.data, "selected_thermostats": final_selection},
+            reason="reconfigure_successful",
+        )
+
+    async def _async_delete_plant_subscriptions(
+        self, api: BticinoX8000Api, plant_ids: set[str], external_url: str
+    ) -> None:
+        """Best-effort delete of our C2C subscriptions for the given plants.
+
+        Only removes subscriptions that both belong to one of ``plant_ids`` and
+        point at *our* webhook URL. Non-fatal: a failure just leaves a harmless
+        orphan the user can clean up manually.
+        """
+        webhook_url = f"{external_url.rstrip('/')}/api/webhook/{WEBHOOK_ID}"
+        try:
+            resp = await api.get_subscriptions_c2c_notifications()
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.warning(
+                "Reconfigure devices: could not list C2C subscriptions (%s); "
+                "dropped-plant subscriptions may need manual cleanup.", err,
+            )
+            return
+
+        if resp.get("status_code") != 200:
+            _LOGGER.warning(
+                "Reconfigure devices: listing C2C subscriptions returned %s.",
+                resp.get("status_code"),
+            )
+            return
+
+        subs = resp.get("data")
+        if not isinstance(subs, list):
+            return
+
+        for sub in subs:
+            if not isinstance(sub, dict):
+                continue
+            plant_id = sub.get("plantId")
+            if plant_id not in plant_ids:
+                continue
+            if (sub.get("EndPointUrl") or "").rstrip("/") != webhook_url:
+                continue
+            sub_id = sub.get("subscriptionId")
+            if not sub_id:
+                continue
+            try:
+                await api.delete_subscribe_c2c_notifications(plant_id, sub_id)
+                _LOGGER.info(
+                    "Reconfigure devices: removed C2C subscription for dropped "
+                    "plant %s", plant_id,
+                )
+            except Exception as err:  # noqa: BLE001
+                _LOGGER.warning(
+                    "Reconfigure devices: failed to delete C2C subscription %s: %s",
+                    sub_id, err,
+                )
 
     async def _async_cleanup_old_subscriptions(
         self, entry: config_entries.ConfigEntry, old_url: str

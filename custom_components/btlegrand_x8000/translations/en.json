@@ -24,8 +24,16 @@
         "description": "What would you like to reconfigure?",
         "menu_options": {
           "reconfigure_url": "Change external URL (webhook target)",
-          "reconfigure_credentials": "Renew Legrand credentials (re-authenticate)"
+          "reconfigure_credentials": "Renew Legrand credentials (re-authenticate)",
+          "reconfigure_devices": "Add / remove thermostats (re-scan plant)"
         }
+      },
+      "reconfigure_devices": {
+        "data": {
+          "selected_thermostats": "Select the thermostats to expose"
+        },
+        "description": "The thermostats currently on your Legrand plant(s) have been re-scanned. Checked items are the ones currently added. Check new thermostats to add them, or uncheck to remove them.\n\nRemoved thermostats become \"unavailable\" and can then be deleted from the device page. Their history and the still-selected devices are preserved.",
+        "title": "Legrand/Bticino Smarther - Add / Remove Thermostats"
       },
       "reconfigure_url": {
         "data": {

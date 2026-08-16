@@ -153,10 +153,10 @@ Key methods:
 
 - Steps: `user` (client_id/secret/subscription_key/external_url) → auth-code
   (paste redirected `browser_url`) → `select_thermostats`.
-- `async_step_reconfigure`: **menu** with two self-contained sub-flows —
-  `reconfigure_url` and `reconfigure_credentials`. Neither mutates the running
-  entry until it completes and validates; an aborted/failed dialog leaves the
-  production entry untouched.
+- `async_step_reconfigure`: **menu** with three self-contained sub-flows —
+  `reconfigure_url`, `reconfigure_credentials`, `reconfigure_devices`. None
+  mutates the running entry until it completes and validates; an aborted/failed
+  dialog leaves the production entry untouched.
   - `reconfigure_url`: edit `external_url` (the C2C webhook target) in place.
     Best-effort deletes the old-URL subscriptions via
     `_async_cleanup_old_subscriptions` (uses the loaded `coordinator.api`), then
@@ -169,11 +169,20 @@ Key methods:
     token exchange + `get_plants()==200` validate the new creds. Preserves
     `external_url` and `selected_thermostats` (entity_ids/history kept); plant
     re-selection is skipped.
+  - `reconfigure_devices`: re-select exposed thermostats (add/remove). Re-scans
+    live topology via the loaded `coordinator.api` (current tokens, no OAuth),
+    pre-checks the currently-selected (keyed on `topology_id`), rebuilds
+    `selected_thermostats` preserving unchanged entries. Plants that drop out
+    entirely get their C2C subscription deleted (`_async_delete_plant_subscriptions`,
+    reversible). De-selected devices are **not** force-removed — they go
+    "unavailable" and are user-removable via `async_remove_config_entry_device`
+    (`__init__.py`), which only permits deleting orphaned thermostats (never a
+    still-selected one nor the shared service device).
   - Requires HA ≥ 2024.4 (reconfigure flow); `MIN_REQUIRED_HA_VERSION` bumped to match.
 - `single_instance_allowed`. Stores `access_token_expires_on` (datetime) in
   `entry.data`. **No `async_get_options_flow`** — intentional; config numbers/
-  switches own the tuning options. `entry.data` device selection is fixed at
-  install; `external_url` and the credential set are user-editable via reconfigure.
+  switches own the tuning options. All install-time `entry.data` (credentials,
+  external_url, device selection) is now user-editable via the reconfigure menu.
 
 ## 10. Entities
 

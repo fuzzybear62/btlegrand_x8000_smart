@@ -106,8 +106,16 @@
         "description": "Cosa vuoi riconfigurare?",
         "menu_options": {
           "reconfigure_url": "Cambia URL esterno (destinazione webhook)",
-          "reconfigure_credentials": "Rinnova le credenziali Legrand (ri-autenticazione)"
+          "reconfigure_credentials": "Rinnova le credenziali Legrand (ri-autenticazione)",
+          "reconfigure_devices": "Aggiungi / rimuovi termostati (ri-scansiona impianto)"
         }
+      },
+      "reconfigure_devices": {
+        "data": {
+          "selected_thermostats": "Seleziona i termostati da esporre"
+        },
+        "description": "I termostati attualmente presenti sul/sui tuo/i impianto/i Legrand sono stati ri-scansionati. Le voci spuntate sono quelle attualmente aggiunte. Spunta i nuovi termostati per aggiungerli, o togli la spunta per rimuoverli.\n\nI termostati rimossi diventano \"non disponibili\" e possono poi essere eliminati dalla pagina del dispositivo. Il loro storico e i dispositivi ancora selezionati vengono mantenuti.",
+        "title": "Legrand/Bticino Smarther - Aggiungi / Rimuovi Termostati"
       },
       "reconfigure_url": {
         "data": {

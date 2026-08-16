@@ -166,6 +166,16 @@ tokens. Your external URL and selected thermostats (and their history) are
 preserved. The integration keeps running on the current credentials until the new
 ones are validated against the Legrand cloud.
 
+**Add / remove thermostats.** The exposed thermostats are chosen at install and
+are not re-discovered on reload, so a thermostat added or removed in the Legrand
+app won't appear/disappear on its own. This option re-scans your plant(s) and
+shows the full list with the currently-added ones pre-checked: check new ones to
+add them, uncheck ones to remove them. No re-authentication is needed. Removed
+thermostats become **unavailable** — you can then delete each one from its device
+page (**⋮ → Delete**); still-selected devices and their history are untouched. If
+removing a thermostat empties a whole plant, that plant's push subscription is
+cleaned up automatically.
+
 ---
 
 ## Architecture

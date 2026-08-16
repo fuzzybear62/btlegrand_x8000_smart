@@ -334,3 +334,33 @@ Netatmo") and the `BtLegrand` manufacturer/device naming are consistent
 everywhere user-visible; the `Bticino*` prefixes are internal Python class names
 only (left as-is — a rename would be untestable churn with no functional effect).
 Added a `config.abort` translation block (en/it). Manifest `version` → 1.2.0.
+
+## Feature — Reconfigure devices, add & remove (v1.3.0)
+
+Third menu sub-flow: `reconfigure_devices`. `selected_thermostats` is frozen at
+install and never re-discovered on reload (`get_topology` runs only in the config
+flow), so a thermostat added/removed in the Legrand app is invisible to the
+integration. This step re-scans the live topology using the **loaded**
+`coordinator.api` (current tokens — no OAuth), pre-checks the currently-selected
+ones (keyed on `topology_id`, so an app-side rename doesn't un-check them), and
+rebuilds `selected_thermostats` preserving unchanged entries verbatim (keeps their
+`webhook_id`, no churn).
+
+Add is trivial and mostly automatic: new entities on reload, and a brand-new
+plant is auto-subscribed by `async_setup_entry`. Removal is the asymmetric,
+delicate case and was split into two halves by risk:
+
+* **Cloud subscription (safe/reversible → automated):** a plant that drops out
+  *entirely* has its per-plant C2C subscription deleted
+  (`_async_delete_plant_subscriptions`; a plant still holding ≥1 thermostat is
+  left alone). Re-selecting re-subscribes on the next reload, so this is
+  reversible.
+* **HA registry (irreversible → left to the user, HA-native):** de-selected
+  devices are **not** force-removed from the registry (that would drop history
+  with no way to test the removal path safely). They simply go "unavailable";
+  `async_remove_config_entry_device` (`__init__.py`) then lets the user delete
+  each one from the UI, and rejects deletion of a still-selected thermostat or
+  the shared service device. This choice (over auto-cleanup) was made explicitly
+  because the addon ships without a staging test.
+
+Manifest `version` → 1.3.0.
