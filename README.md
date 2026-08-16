@@ -67,7 +67,7 @@ volume stays inside the quota.
 
 ## Requirements
 
-- Home Assistant **2024.1.0** or newer.
+- Home Assistant **2024.4.0** or newer (required by the reconfigure flow).
 - A **Legrand developer account** (*Works with Legrand* / Eliot) with a registered
   application, providing:
   - **Client ID**
@@ -140,6 +140,20 @@ the running coordinator and persist to the config entry) — no reload needed.
 | **Cool Down Interval** | Number | `60 min` | 15–180 min | Pause duration after a rate-limit / auth failure before the next attempt. |
 | **Notify Errors** | Switch | `ON` | — | Raise a persistent notification when the integration pauses due to an API error. |
 | **Webhook Debounce** | Number | `1.0 s` | 0.5–5.0 s | Coalescing window for rapid webhook bursts (e.g. sliding the device's touch bar). |
+
+### Changing the external URL (Reconfigure)
+
+The credentials and thermostat selection are fixed at install time, but the
+**Home Assistant external URL** — the C2C webhook target — can be changed in place
+via **Settings → Devices & Services → (entry) → ⋮ → Reconfigure**. This is useful
+when your domain / DDNS changes or you enable/disable a reverse proxy: without it,
+the Legrand push subscription would keep pointing at the old URL and push updates
+would silently stop.
+
+Reconfigure retargets the subscription to the new URL and best-effort removes the
+subscription bound to the old one — no re-authentication and no device re-selection.
+(Removing the old subscription is non-fatal: if it can't be reached, it is left as a
+harmless orphan you can clean up manually.)
 
 ---
 

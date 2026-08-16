@@ -40,7 +40,7 @@ Coordinator data shape (flat): `{ topology_id: <chronothermostat dict>, ... }`.
 | `api.py` | 403 | `BticinoX8000Api` — HTTP, rate-limit/401 handling, usage Store |
 | `coordinator.py` | 497 | `BticinoCoordinator` — adaptive polling, cool-down, webhook merge |
 | `webhook.py` | 99 | `BticinoX8000WebhookHandler` — validates push, fans out to coordinators |
-| `config_flow.py` | 356 | 3-step user flow (creds → auth code → select thermostats) |
+| `config_flow.py` | 474 | 3-step user flow (creds → auth code → select thermostats) + reconfigure (external URL) |
 | `climate.py` | 452 | `BticinoX8000Climate` — the thermostat entity |
 | `sensor.py` | 659 | 7 per-device sensors + 2 singleton diagnostics |
 | `select.py` | 358 | Program + Boost select entities |
@@ -108,9 +108,11 @@ Coordinator data shape (flat): `{ topology_id: <chronothermostat dict>, ... }`.
 - Command write: `set_chronothermostat_status(plant_id, topology_id, payload)`
   (used by climate/select). `set_subscribe_c2c_notifications` (used by __init__).
   `get_subscriptions_c2c_notifications` / `delete_subscribe_c2c_notifications`
-  are unused by design — the C2C subscription is intentionally left in place on
-  removal so a reinstall reuses it (409 = success); these helpers are kept for
-  optional manual cleanup only. See REVIEW "Decision — C2C subscription".
+  are still NOT called on removal — the C2C subscription is intentionally left in
+  place so a reinstall reuses it (409 = success). Their one real caller is the
+  **reconfigure flow** (`config_flow._async_cleanup_old_subscriptions`), which
+  best-effort deletes the *old-URL* subscriptions when the external URL changes.
+  See REVIEW "Decision — C2C subscription".
 - M1/L2 fixed: the double-checked-lock now compares against a `sent_token`
   snapshot; the needless f-string is gone.
 
@@ -151,9 +153,15 @@ Key methods:
 
 - Steps: `user` (client_id/secret/subscription_key/external_url) → auth-code
   (paste redirected `browser_url`) → `select_thermostats`.
+- `async_step_reconfigure` (`:43`): edit `external_url` (the C2C webhook target)
+  in place. Best-effort deletes the old-URL subscriptions via
+  `_async_cleanup_old_subscriptions` (uses the loaded `coordinator.api`), then
+  `async_update_reload_and_abort` — reload re-subscribes the new URL (409/200).
+  Requires HA ≥ 2024.4 (reconfigure flow); `MIN_REQUIRED_HA_VERSION` bumped to match.
 - `single_instance_allowed`. Stores `access_token_expires_on` (datetime) in
   `entry.data`. **No `async_get_options_flow`** — intentional; config numbers/
-  switches own the tuning options.
+  switches own the tuning options. `entry.data` (creds, device selection) is
+  otherwise fixed at install; only `external_url` is user-editable (reconfigure).
 
 ## 10. Entities
 

@@ -18,7 +18,7 @@ DEFAULT_MAX_TEMP = 40
 
 # Set by the release workflow from the git tag; keep the names stable.
 INTEGRATION_VERSION = "main"
-MIN_REQUIRED_HA_VERSION = "2024.1.0b0"
+MIN_REQUIRED_HA_VERSION = "2024.4.0"
 
 # API endpoints (appended to the base URLs above).
 AUTH_REQ_ENDPOINT = "/token"

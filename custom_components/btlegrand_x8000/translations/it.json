@@ -96,6 +96,13 @@
         "description": "Clicca sul link sottostante per autorizzare:\n\n[CLICCA QUI PER AUTORIZZARE]({auth_url})\n\nDopo l'autorizzazione, verrai reindirizzato a una pagina. Copia l'intero indirizzo URL dalla barra del browser e incollalo qui sotto.",
         "title": "Legrand/Bticino Smarther - Metodo di Autenticazione Legacy"
       },
+      "reconfigure": {
+        "data": {
+          "external_url": "URL per accedere a Home Assistant"
+        },
+        "description": "Aggiorna l'URL esterno di Home Assistant usato come destinazione del webhook C2C. Il valore attuale è: {current_url}\n\nModificandolo, la sottoscrizione push Legrand viene reindirizzata al nuovo URL e la vecchia viene rimossa. Non serve rifare l'autenticazione né riselezionare i dispositivi.",
+        "title": "Legrand/Bticino Smarther - Cambia URL Webhook"
+      },
       "select_thermostats": {
         "data": {
           "select_thermostats": "Seleziona i termostati da aggiungere"

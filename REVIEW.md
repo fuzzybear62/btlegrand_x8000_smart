@@ -277,8 +277,27 @@ design choice**, not a leak to fix:
   hard-to-test teardown path (it needs a valid token at removal time) for a
   marginal benefit.
 
-The only scenario where cleanup helps is a user who **changes their external URL
-across installs**, accumulating stale subscriptions. For that, the GET/DELETE
-helpers remain available for a manual one-off — deliberately not auto-called.
-Documented in README ("Webhook Subscriptions (Removal & Reinstall)") and in a
-code comment above the API methods. **No `async_remove_entry` added.**
+The only scenario where cleanup helps is a user who **changes their external URL**,
+accumulating stale subscriptions. This is now handled *in place* by the
+**reconfigure flow** (see below) rather than requiring a remove/re-add — the
+GET/DELETE helpers finally have a real caller there. They are still never called
+on unload/removal. Documented in README ("Webhook Subscriptions (Removal &
+Reinstall)") and in a code comment above the API methods. **No `async_remove_entry`
+added.**
+
+## Feature — Reconfigure external URL (v1.1.0)
+
+`entry.data` (credentials, tokens, device selection) is fixed at install and has
+no OptionsFlow (tuning lives in the number/switch entities). The one setup
+parameter worth editing post-install is **`external_url`** — the C2C webhook
+target. If it changes and can't be updated, the Legrand push subscription keeps
+pointing at the old URL and push silently stops; the only pre-1.1.0 remedy was a
+full remove/re-add (losing history + re-OAuth + re-select devices).
+
+Added `async_step_reconfigure` (`config_flow.py`): edits `external_url`,
+best-effort deletes the old-URL C2C subscriptions
+(`_async_cleanup_old_subscriptions`, non-fatal), then
+`async_update_reload_and_abort` — the reload re-subscribes the new URL (409/200).
+Credentials-reauth and device re-selection were analysed and **deliberately
+deferred** (separate, higher-complexity steps). Requires HA ≥ 2024.4
+(`MIN_REQUIRED_HA_VERSION` and `hacs.json` bumped); manifest `version` → 1.1.0.

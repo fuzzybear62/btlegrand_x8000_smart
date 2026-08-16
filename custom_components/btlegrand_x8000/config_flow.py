@@ -23,6 +23,7 @@ from .const import (
     DEFAULT_REDIRECT_URI,
     DOMAIN,
     SUBSCRIPTION_KEY,
+    WEBHOOK_ID,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -39,6 +40,125 @@ class BticinoX8000ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         # Map: "Display Name (Plant ID)" -> Thermostat Data Object
         self._selection_map: dict[str, Any] = {}
         self.bticino_api: BticinoX8000Api | None = None
+
+    async def async_step_reconfigure(
+        self, user_input: dict[str, Any] | None = None
+    ) -> config_entries.ConfigFlowResult:
+        """Let the user change the Home Assistant external URL after install.
+
+        The external URL is the C2C webhook target. When it changes, the
+        Legrand-side subscription keeps pointing at the old URL and push
+        updates stop. This step retargets the subscription without a full
+        remove/re-add: it best-effort deletes the subscriptions bound to the
+        old URL, persists the new URL, and reloads (setup re-subscribes it).
+        """
+        entry = self.hass.config_entries.async_get_entry(self.context["entry_id"])
+        if entry is None:
+            return self.async_abort(reason="unknown")
+        current_url = entry.data.get("external_url", "")
+        errors: dict[str, str] = {}
+
+        if user_input is not None:
+            new_url = user_input["external_url"].strip().rstrip("/")
+            old_url = current_url.rstrip("/")
+
+            if not new_url.startswith(("http://", "https://")):
+                errors["external_url"] = "invalid_url"
+            elif new_url == old_url:
+                # Nothing to change.
+                return self.async_abort(reason="reconfigure_successful")
+            else:
+                # Drop the old-URL subscriptions before overwriting the URL,
+                # while the loaded API client (and old URL) are still available.
+                await self._async_cleanup_old_subscriptions(entry, old_url)
+                return self.async_update_reload_and_abort(
+                    entry,
+                    data={**entry.data, "external_url": new_url},
+                    reason="reconfigure_successful",
+                )
+
+        return self.async_show_form(
+            step_id="reconfigure",
+            data_schema=vol.Schema(
+                {vol.Required("external_url", default=current_url): str}
+            ),
+            errors=errors,
+            description_placeholders={"current_url": current_url or "-"},
+        )
+
+    async def _async_cleanup_old_subscriptions(
+        self, entry: config_entries.ConfigEntry, old_url: str
+    ) -> None:
+        """Best-effort removal of C2C subscriptions pointing at the old URL.
+
+        Non-fatal: any failure only leaves an orphaned (harmless) subscription
+        the user can clean up manually. Never blocks the reconfigure.
+        """
+        coordinator = self.hass.data.get(DOMAIN, {}).get(entry.entry_id)
+        api = getattr(coordinator, "api", None)
+        if api is None:
+            _LOGGER.warning(
+                "Reconfigure: integration not loaded; old C2C subscription for "
+                "%s left for manual cleanup.", old_url,
+            )
+            return
+
+        old_webhook_url = f"{old_url}/api/webhook/{WEBHOOK_ID}"
+        try:
+            resp = await api.get_subscriptions_c2c_notifications()
+        except Exception as err:  # noqa: BLE001 - best-effort, never fatal
+            _LOGGER.warning(
+                "Reconfigure: could not list C2C subscriptions (%s); old "
+                "subscription for %s may need manual cleanup.", err, old_webhook_url,
+            )
+            return
+
+        if resp.get("status_code") != 200:
+            _LOGGER.warning(
+                "Reconfigure: listing C2C subscriptions returned %s; old "
+                "subscription for %s may need manual cleanup.",
+                resp.get("status_code"), old_webhook_url,
+            )
+            return
+
+        subs = resp.get("data") or []
+        if isinstance(subs, dict):
+            subs = subs.get("subscriptions") or subs.get("plants") or []
+
+        deleted = 0
+        for sub in subs if isinstance(subs, list) else []:
+            if not isinstance(sub, dict):
+                continue
+            # Subscribe payload uses "EndPointUrl"; tolerate casing variants.
+            url = (
+                sub.get("EndPointUrl")
+                or sub.get("EndpointUrl")
+                or sub.get("endPointUrl")
+                or sub.get("url")
+            )
+            if not url or url.rstrip("/") != old_webhook_url:
+                continue
+            sub_id = (
+                sub.get("subscriptionId")
+                or sub.get("id")
+                or sub.get("subscription_id")
+            )
+            plant_id = sub.get("plantId") or sub.get("plant") or sub.get("plant_id")
+            if not sub_id or not plant_id:
+                continue
+            try:
+                await api.delete_subscribe_c2c_notifications(plant_id, sub_id)
+                deleted += 1
+            except Exception as err:  # noqa: BLE001 - best-effort, never fatal
+                _LOGGER.warning(
+                    "Reconfigure: failed to delete old C2C subscription %s: %s",
+                    sub_id, err,
+                )
+
+        _LOGGER.info(
+            "Reconfigure: removed %d old C2C subscription(s) for %s",
+            deleted, old_webhook_url,
+        )
 
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
