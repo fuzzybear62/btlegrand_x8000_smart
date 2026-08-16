@@ -1,7 +1,7 @@
 # =============================================================================
-# BtLegrand X8000 — "API Budget & Diagnostics" dashboard SECTION
+# BtLegrand X8000 — "API Budget & Diagnostics" dashboard cards
 # =============================================================================
-# A drop-in section for a Home Assistant *Sections* view. It visualises the
+# A drop-in set of cards for a Home Assistant *Sections* view. It visualises the
 # integration's diagnostic sensors, both live and historical.
 #
 # PREREQUISITES
@@ -12,8 +12,13 @@
 #      "today" charts read state history and are immediate.
 #
 # HOW TO ADD
-#   Edit dashboard -> a Sections view -> "+ Add section" -> ⋮ -> "Edit in YAML"
-#   -> paste the whole block below (everything from `type: grid`).
+#   A *Sections* view is already a grid, so there is no outer `type: grid`
+#   wrapper here — the file is a plain list of cards. Add them to a section:
+#     Edit dashboard -> a Sections view -> "+ Add card" -> ⋮ / "Show code editor"
+#   and paste one card at a time; each card carries its own `grid_options.columns`
+#   (6 = half width, 12 = full) so the section lays them out correctly.
+#   (If you keep an old grid/masonry view instead, wrap the list below under
+#    `type: grid` + `cards:`.)
 #
 # ENTITY IDS
 #   All ids below assume the default service-device name "BtLegrand Service" and
@@ -30,265 +35,263 @@
 #   in the view (one per thermostat) than as a custom apexcharts card.
 # =============================================================================
 
-type: grid
-cards:
-  # ----------------------------------------------------------------- TITLE ---
-  - type: heading
-    heading: BtLegrand — API Budget & Diagnostica
-    heading_style: title
-    icon: mdi:cloud-sync
+# ----------------------------------------------------------------- TITLE ---
+- type: heading
+  heading: BtLegrand — API Budget & Diagnostica
+  heading_style: title
+  icon: mdi:cloud-sync
 
-  # ============================================================ ROW 1: TODAY ==
-  - type: heading
-    heading: Oggi, a colpo d'occhio
-    heading_style: subtitle
+# ============================================================ ROW 1: TODAY ==
+- type: heading
+  heading: Oggi, a colpo d'occhio
+  heading_style: subtitle
 
-  # --- Gauge: % of quota used today (auto-follows the tunable quota) ---------
-  - type: custom:apexcharts-card
-    grid_options:
-      columns: 6
-    header:
-      show: true
-      title: Budget usato oggi
-      show_states: true
-    chart_type: radialBar
-    series:
-      - entity: sensor.btlegrand_api_budget_used
-        name: Usato
-        min: 0
-        max: 100
-        color_threshold:
-          - value: 0
-            color: "#43a047"   # green
-          - value: 80
-            color: "#fbc02d"   # amber  (< 20% budget left -> economy zone)
-          - value: 92
-            color: "#fb8c00"   # orange (< 8% budget left  -> survival zone)
-          - value: 100
-            color: "#e53935"   # red    (over quota)
-    apex_config:
-      chart:
-        height: 200
-      plotOptions:
-        radialBar:
-          startAngle: -120
-          endAngle: 120
-          hollow:
-            size: 55%
-          track:
-            background: "rgba(128,128,128,0.15)"
-          dataLabels:
-            name:
-              show: true
-              fontSize: "12px"
-            value:
-              fontSize: "22px"
-              formatter: EVAL:function (v) { return Math.round(v) + '%'; }
+# --- Gauge: % of quota used today (auto-follows the tunable quota) ---------
+- type: custom:apexcharts-card
+  grid_options:
+    columns: 6
+  header:
+    show: true
+    title: Budget usato oggi
+    show_states: true
+  chart_type: radialBar
+  series:
+    - entity: sensor.btlegrand_api_budget_used
+      name: Usato
+      min: 0
+      max: 100
+      color_threshold:
+        - value: 0
+          color: "#43a047"   # green
+        - value: 80
+          color: "#fbc02d"   # amber  (< 20% budget left -> economy zone)
+        - value: 92
+          color: "#fb8c00"   # orange (< 8% budget left  -> survival zone)
+        - value: 100
+          color: "#e53935"   # red    (over quota)
+  apex_config:
+    chart:
+      height: 200
+    plotOptions:
+      radialBar:
+        startAngle: -120
+        endAngle: 120
+        hollow:
+          size: 55%
+        track:
+          background: "rgba(128,128,128,0.15)"
+        dataLabels:
+          name:
+            show: true
+            fontSize: "12px"
+          value:
+            fontSize: "22px"
+            formatter: EVAL:function (v) { return Math.round(v) + '%'; }
 
-  # --- Gauge: % of quota we're PROJECTED to hit by midnight -----------------
-  - type: custom:apexcharts-card
-    grid_options:
-      columns: 6
-    header:
-      show: true
-      title: Proiezione a mezzanotte
-      show_states: true
-    chart_type: radialBar
-    series:
-      - entity: sensor.btlegrand_api_projected_used
-        name: Proiezione
-        min: 0
-        max: 100
-        color_threshold:
-          - value: 0
-            color: "#43a047"
-          - value: 90
-            color: "#fbc02d"
-          - value: 100
-            color: "#e53935"   # projected over quota = on pace to overshoot
-    apex_config:
-      chart:
-        height: 200
-      plotOptions:
-        radialBar:
-          startAngle: -120
-          endAngle: 120
-          hollow:
-            size: 55%
-          track:
-            background: "rgba(128,128,128,0.15)"
-          dataLabels:
-            name:
-              show: true
-              fontSize: "12px"
-            value:
-              fontSize: "22px"
-              formatter: EVAL:function (v) { return Math.round(v) + '%'; }
+# --- Gauge: % of quota we're PROJECTED to hit by midnight -----------------
+- type: custom:apexcharts-card
+  grid_options:
+    columns: 6
+  header:
+    show: true
+    title: Proiezione a mezzanotte
+    show_states: true
+  chart_type: radialBar
+  series:
+    - entity: sensor.btlegrand_api_projected_used
+      name: Proiezione
+      min: 0
+      max: 100
+      color_threshold:
+        - value: 0
+          color: "#43a047"
+        - value: 90
+          color: "#fbc02d"
+        - value: 100
+          color: "#e53935"   # projected over quota = on pace to overshoot
+  apex_config:
+    chart:
+      height: 200
+    plotOptions:
+      radialBar:
+        startAngle: -120
+        endAngle: 120
+        hollow:
+          size: 55%
+        track:
+          background: "rgba(128,128,128,0.15)"
+        dataLabels:
+          name:
+            show: true
+            fontSize: "12px"
+          value:
+            fontSize: "22px"
+            formatter: EVAL:function (v) { return Math.round(v) + '%'; }
 
-  # --- Current polling tier (instantaneous enum -> native tile) -------------
-  - type: tile
-    grid_options:
-      columns: 6
-    entity: sensor.btlegrand_service_polling_tier
-    name: Polling Tier
-    icon: mdi:speedometer
-    color: >-
-      {{ {'disabled':'grey','normal':'green','economy':'amber',
-          'survival':'orange','frozen':'red'}[states('sensor.btlegrand_service_polling_tier')] }}
-    features_position: bottom
-    vertical: false
+# --- Current polling tier (instantaneous enum -> native tile) -------------
+- type: tile
+  grid_options:
+    columns: 6
+  entity: sensor.btlegrand_service_polling_tier
+  name: Polling Tier
+  icon: mdi:speedometer
+  color: >-
+    {{ {'disabled':'grey','normal':'green','economy':'amber',
+        'survival':'orange','frozen':'red'}[states('sensor.btlegrand_service_polling_tier')] }}
+  features_position: bottom
+  vertical: false
 
-  # --- Skips so far (efficiency readout) ------------------------------------
-  - type: tile
-    grid_options:
-      columns: 6
-    entity: sensor.btlegrand_service_smart_polling_skips
-    name: Poll risparmiati
-    icon: mdi:leaf
-    color: green
+# --- Skips so far (efficiency readout) ------------------------------------
+- type: tile
+  grid_options:
+    columns: 6
+  entity: sensor.btlegrand_service_smart_polling_skips
+  name: Poll risparmiati
+  icon: mdi:leaf
+  color: green
 
-  # ==================================================== ROW 2: TODAY DYNAMICS =
-  - type: heading
-    heading: Dinamica di oggi
-    heading_style: subtitle
+# ==================================================== ROW 2: TODAY DYNAMICS =
+- type: heading
+  heading: Dinamica di oggi
+  heading_style: subtitle
 
-  # --- Polling-tier TIMELINE (enum mapped to throttle depth 0..4) -----------
-  - type: custom:apexcharts-card
-    grid_options:
-      columns: 12
-    header:
-      show: true
-      title: Polling Tier — timeline
-    graph_span: 24h
-    span:
-      start: day
-    yaxis:
-      - min: 0
-        max: 4
-        decimals: 0
-        apex_config:
-          tickAmount: 4
-          labels:
-            formatter: >-
-              EVAL:function (v) { return ['off','normal','eco','surv','frozen'][Math.round(v)] || ''; }
-    series:
-      - entity: sensor.btlegrand_service_polling_tier
-        name: Tier
-        type: area
-        curve: stepline
-        stroke_width: 2
-        # Map the categorical state to a numeric "throttle depth". If this lane
-        # renders empty, your tier states differ from the defaults below.
-        transform: >-
-          return {'disabled':0,'normal':1,'economy':2,'survival':3,'frozen':4}[x];
-        color_threshold:
-          - value: 0
-            color: "#9e9e9e"
-          - value: 1
-            color: "#43a047"
-          - value: 2
-            color: "#fbc02d"
-          - value: 3
-            color: "#fb8c00"
-          - value: 4
-            color: "#e53935"
+# --- Polling-tier TIMELINE (enum mapped to throttle depth 0..4) -----------
+- type: custom:apexcharts-card
+  grid_options:
+    columns: 12
+  header:
+    show: true
+    title: Polling Tier — timeline
+  graph_span: 24h
+  span:
+    start: day
+  yaxis:
+    - min: 0
+      max: 4
+      decimals: 0
+      apex_config:
+        tickAmount: 4
+        labels:
+          formatter: >-
+            EVAL:function (v) { return ['off','normal','eco','surv','frozen'][Math.round(v)] || ''; }
+  series:
+    - entity: sensor.btlegrand_service_polling_tier
+      name: Tier
+      type: area
+      curve: stepline
+      stroke_width: 2
+      # Map the categorical state to a numeric "throttle depth". If this lane
+      # renders empty, your tier states differ from the defaults below.
+      transform: >-
+        return {'disabled':0,'normal':1,'economy':2,'survival':3,'frozen':4}[x];
+      color_threshold:
+        - value: 0
+          color: "#9e9e9e"
+        - value: 1
+          color: "#43a047"
+        - value: 2
+          color: "#fbc02d"
+        - value: 3
+          color: "#fb8c00"
+        - value: 4
+          color: "#e53935"
 
-  # --- Projected & used vs the live quota line (today) ----------------------
-  - type: custom:apexcharts-card
-    grid_options:
-      columns: 12
-    header:
-      show: true
-      title: Proiezione & uso vs quota (oggi)
-      show_states: true
-    graph_span: 24h
-    span:
-      start: day
-    yaxis:
-      - min: 0
-        decimals: 0
-    series:
-      - entity: sensor.btlegrand_service_projected_daily_calls
-        name: Proiezione
-        type: area
-        curve: smooth
-        stroke_width: 2
-        opacity: 0.15
-        color: "#42a5f5"
-      - entity: sensor.btlegrand_service_api_call_count
-        name: Usate finora
-        type: line
-        curve: stepline
-        stroke_width: 2
-        color: "#7e57c2"
-      # Flat quota line generated from the live number entity (quota-aware,
-      # independent of recorder retention).
-      # `entity` is required by apexcharts-card even for data_generator series;
-      # its own history is ignored — the flat quota line comes from the generator.
-      - entity: number.btlegrand_service_daily_api_quota
-        name: Quota
-        type: line
-        stroke_width: 2
-        color: "#e53935"
-        show:
-          legend_value: false
-        data_generator: |
-          const q = Number(hass.states['number.btlegrand_service_daily_api_quota'].state) || 500;
-          return [[start.getTime(), q], [end.getTime(), q]];
+# --- Projected & used vs the live quota line (today) ----------------------
+- type: custom:apexcharts-card
+  grid_options:
+    columns: 12
+  header:
+    show: true
+    title: Proiezione & uso vs quota (oggi)
+    show_states: true
+  graph_span: 24h
+  span:
+    start: day
+  yaxis:
+    - min: 0
+      decimals: 0
+  series:
+    - entity: sensor.btlegrand_service_projected_daily_calls
+      name: Proiezione
+      type: area
+      curve: smooth
+      stroke_width: 2
+      opacity: 0.15
+      color: "#42a5f5"
+    - entity: sensor.btlegrand_service_api_call_count
+      name: Usate finora
+      type: line
+      curve: stepline
+      stroke_width: 2
+      color: "#7e57c2"
+    # Flat quota line generated from the live number entity (quota-aware,
+    # independent of recorder retention).
+    # `entity` is required by apexcharts-card even for data_generator series;
+    # its own history is ignored — the flat quota line comes from the generator.
+    - entity: number.btlegrand_service_daily_api_quota
+      name: Quota
+      type: line
+      stroke_width: 2
+      color: "#e53935"
+      show:
+        legend_value: false
+      data_generator: |
+        const q = Number(hass.states['number.btlegrand_service_daily_api_quota'].state) || 500;
+        return [[start.getTime(), q], [end.getTime(), q]];
 
-  # ======================================================= ROW 3: HISTORY 30d =
-  - type: heading
-    heading: Storico — ultimi 30 giorni
-    heading_style: subtitle
+# ======================================================= ROW 3: HISTORY 30d =
+- type: heading
+  heading: Storico — ultimi 30 giorni
+  heading_style: subtitle
 
-  # --- Calls per day vs quota (HA statistics: change/day) -------------------
-  - type: custom:apexcharts-card
-    grid_options:
-      columns: 12
-    header:
-      show: true
-      title: Chiamate API al giorno
-    graph_span: 30d
-    yaxis:
-      - min: 0
-        decimals: 0
-    series:
-      - entity: sensor.btlegrand_service_api_call_count
-        name: Chiamate/giorno
-        type: column
-        statistics:
-          type: change
-          period: day
-        color: "#5c6bc0"
-      # `entity` is required by apexcharts-card even for data_generator series;
-      # its own history is ignored — the flat quota line comes from the generator.
-      - entity: number.btlegrand_service_daily_api_quota
-        name: Quota
-        type: line
-        stroke_width: 2
-        color: "#e53935"
-        show:
-          legend_value: false
-        data_generator: |
-          const q = Number(hass.states['number.btlegrand_service_daily_api_quota'].state) || 500;
-          return [[start.getTime(), q], [end.getTime(), q]];
+# --- Calls per day vs quota (HA statistics: change/day) -------------------
+- type: custom:apexcharts-card
+  grid_options:
+    columns: 12
+  header:
+    show: true
+    title: Chiamate API al giorno
+  graph_span: 30d
+  yaxis:
+    - min: 0
+      decimals: 0
+  series:
+    - entity: sensor.btlegrand_service_api_call_count
+      name: Chiamate/giorno
+      type: column
+      statistics:
+        type: change
+        period: day
+      color: "#5c6bc0"
+    # `entity` is required by apexcharts-card even for data_generator series;
+    # its own history is ignored — the flat quota line comes from the generator.
+    - entity: number.btlegrand_service_daily_api_quota
+      name: Quota
+      type: line
+      stroke_width: 2
+      color: "#e53935"
+      show:
+        legend_value: false
+      data_generator: |
+        const q = Number(hass.states['number.btlegrand_service_daily_api_quota'].state) || 500;
+        return [[start.getTime(), q], [end.getTime(), q]];
 
-  # --- Skips per day (efficiency trend) -------------------------------------
-  - type: custom:apexcharts-card
-    grid_options:
-      columns: 12
-    header:
-      show: true
-      title: Poll risparmiati al giorno
-    graph_span: 30d
-    yaxis:
-      - min: 0
-        decimals: 0
-    series:
-      - entity: sensor.btlegrand_service_smart_polling_skips
-        name: Skip/giorno
-        type: column
-        statistics:
-          type: change
-          period: day
-        color: "#66bb6a"
+# --- Skips per day (efficiency trend) -------------------------------------
+- type: custom:apexcharts-card
+  grid_options:
+    columns: 12
+  header:
+    show: true
+    title: Poll risparmiati al giorno
+  graph_span: 30d
+  yaxis:
+    - min: 0
+      decimals: 0
+  series:
+    - entity: sensor.btlegrand_service_smart_polling_skips
+      name: Skip/giorno
+      type: column
+      statistics:
+        type: change
+        period: day
+      color: "#66bb6a"

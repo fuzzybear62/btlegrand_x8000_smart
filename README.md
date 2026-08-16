@@ -508,8 +508,11 @@ custom per-device chart.
    express usage as a percentage of the *live* Daily API Quota, so the gauges stay
    correct even after you retune the quota.
 
-**Install.** Edit a dashboard → open a *Sections* view → **＋ Add section** → the
-section's ⋮ → **Edit in YAML** → paste the contents of `diagnostics_section.yaml`.
+**Install.** A *Sections* view is already a grid, so `diagnostics_section.yaml` is a
+plain **list of cards** (no outer `type: grid` wrapper). Edit a dashboard → open a
+*Sections* view → **＋ Add card** → **Show code editor**, and paste the cards. Each
+card carries its own `grid_options.columns` (6 = half, 12 = full) so the section lays
+them out for you.
 
 **Adjust entity ids.** The YAML assumes the default service device name
 *"BtLegrand Service"* (e.g. `sensor.btlegrand_service_api_call_count`); the ids are
