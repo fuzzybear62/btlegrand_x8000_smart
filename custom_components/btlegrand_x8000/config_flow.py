@@ -11,7 +11,7 @@ from urllib.parse import parse_qs, urlparse
 import voluptuous as vol
 from homeassistant import config_entries
 from homeassistant.components.webhook import async_generate_id as generate_id
-from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers import selector
 
 from .api import BticinoX8000Api
 from .auth import exchange_code_for_tokens
@@ -298,7 +298,13 @@ class BticinoX8000ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     {
                         vol.Required(
                             "selected_thermostats", default=default_selection
-                        ): cv.multi_select(list(self._selection_map.keys())),
+                        ): selector.SelectSelector(
+                            selector.SelectSelectorConfig(
+                                options=list(self._selection_map.keys()),
+                                multiple=True,
+                                mode=selector.SelectSelectorMode.LIST,
+                            )
+                        ),
                     }
                 ),
             )
@@ -726,7 +732,13 @@ class BticinoX8000ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                                 "selected_thermostats",
                                 description="Select Thermostats",
                                 default=list(self._selection_map.keys()),
-                            ): cv.multi_select(list(self._selection_map.keys())),
+                            ): selector.SelectSelector(
+                                selector.SelectSelectorConfig(
+                                    options=list(self._selection_map.keys()),
+                                    multiple=True,
+                                    mode=selector.SelectSelectorMode.LIST,
+                                )
+                            ),
                         }
                     ),
                 )
