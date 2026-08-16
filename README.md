@@ -58,8 +58,14 @@ volume stays inside the quota.
 - **C2C webhook push** — instant updates when the setpoint or mode is changed from
   the physical device or the Legrand app; inbound webhooks are free (they don't
   consume quota).
-- **Persistent token storage** — OAuth tokens are refreshed automatically and
-  persisted to the config entry, surviving restarts.
+- **Persistent token storage** — OAuth tokens are refreshed automatically (and
+  *proactively*, before they expire) and persisted to the config entry, surviving
+  restarts.
+- **Self-healing auth with reauth prompt** — a *transient* auth-server blip only
+  fails the current cycle and retries; a *permanent* failure (dead refresh token)
+  raises Home Assistant's **Re-authenticate** flow so you can re-link the account
+  in place, without removing the integration. The auth state is exposed as an
+  **Authentication Problem** binary sensor and a **Token Expiry** sensor.
 - **Granular telemetry** — diagnostic sensors for total and per-device API usage and
   for the number of polls the optimizer skipped.
 - **Live retuning** — every tuning parameter is exposed as a Number/Switch entity and
@@ -265,7 +271,7 @@ config_flow ──► __init__.async_setup_entry
                (single source of truth)
                      │  adaptive poll loop  (cloud_polling)
                      ▼
-        climate · sensor · select · number · switch · button   (CoordinatorEntity)
+   climate · sensor · binary_sensor · select · number · switch · button  (CoordinatorEntity)
 ```
 
 - **`BticinoX8000Api`** — serialized HTTP client (`Semaphore(1)`, one in-flight
@@ -361,6 +367,19 @@ The Legrand API punishes hammering, so failures short-circuit the cycle:
 3. **Auto-recovery** — when the timer expires, a single probe call is attempted; on
    success, normal operation resumes automatically.
 
+Authentication failures are split by kind so a temporary auth-server hiccup is not
+treated as a dead account:
+
+- **Transient** (network blip, `5xx` from the token endpoint) — only the current
+  cycle fails and the next poll retries; the stored tokens are presumed still valid,
+  so no reauth is requested.
+- **Permanent** (the refresh token itself is rejected — e.g. credentials rotated in
+  the Legrand portal) — the coordinator raises `ConfigEntryAuthFailed`, which turns
+  on the **Authentication Problem** binary sensor and surfaces Home Assistant's
+  **Re-authenticate** button. Completing that flow re-runs the browser authorization
+  and mints fresh tokens in place, preserving your external URL, device selection,
+  and history. The **Force Token Refresh** button also works while auth is broken.
+
 ### 4. Webhook subscriptions (removal & reinstall)
 
 To receive instant push updates, the integration registers a **C2C subscription** on
@@ -422,6 +441,8 @@ Under the singleton *"BtLegrand Service"* device:
 | **Smart Polling Skips** | `sensor` | Diagnostic: polls avoided by the optimizer. |
 | **Polling Tier** | `sensor` | Diagnostic: current throttle tier (disabled/normal/economy/survival/frozen) + enforced intervals in attributes. |
 | **Projected Daily Calls** | `sensor` | Diagnostic: calls we are on track to make by midnight; compare to the quota. |
+| **Token Expiry** | `sensor` | Diagnostic (timestamp): when the current OAuth access token expires; `proactive_refresh_count` attribute counts pre-emptive renewals. |
+| **Authentication Problem** | `binary_sensor` | Diagnostic (problem): **on** only when auth is *permanently* broken and reauth is required — a transient blip does not trip it. |
 
 > The tuning entities are always `available` (even while the API is rate-limited), so
 > you can retune the integration out of a cool-down.
@@ -433,7 +454,9 @@ Under the singleton *"BtLegrand Service"* device:
 Five diagnostic sensors let you *see* the adaptive machinery working instead of
 trusting it blindly. Read them together: **Projected Daily Calls** answers "will I
 overshoot?", **Polling Tier** answers "am I being throttled right now, and how hard?",
-and the three counters explain "where did today's calls go?".
+and the three counters explain "where did today's calls go?". Two further
+**auth-health** diagnostics — **Token Expiry** and **Authentication Problem** —
+answer "is my connection to Legrand about to need attention?" (see below).
 
 **API Call Count (Global)** — `sensor`, unit `calls`, state class `total_increasing`.
 The running total of API calls made today across every device. Resets to `0` at local
@@ -486,6 +509,26 @@ because dividing by a tiny elapsed-fraction would be wildly noisy.
 > **normal** cadence even as raw budget shrinks. If instead you'd burned `264` by
 > 10:00 (0.42 of day) → projected `≈ 629` (`over_budget: true`): the current pace
 > *would* overshoot, so the throttle is allowed to engage.
+
+**Token Expiry** — `sensor` (device class `timestamp`), diagnostic.
+When the current OAuth *access* token expires. The integration renews it
+*proactively* a couple of minutes before that moment, so a `401` mid-request is the
+exception, not the rule. The `proactive_refresh_count` attribute tallies how many
+renewals pre-empted a `401` — a steadily rising count is healthy (the proactive path
+is doing its job); it says nothing about the long-lived *refresh* token.
+> *Example.* A timestamp ~1 h in the future that keeps sliding forward every cycle is
+> normal. If it goes stale and **Authentication Problem** turns on, the refresh token
+> itself was rejected — use **Re-authenticate**.
+
+**Authentication Problem** — `binary_sensor` (device class `problem`), diagnostic.
+**On** only when authentication is *permanently* broken — the refresh token was
+rejected and every cycle now raises `ConfigEntryAuthFailed` until you re-link the
+account. A *transient* auth-server blip deliberately does **not** trip it. It mirrors
+exactly the condition that drives Home Assistant's **Re-authenticate** prompt, so you
+can hang an automation (notify, etc.) off it instead of only watching the HA notice.
+> *Example.* Rotate your Legrand `client_secret` in the portal and the old refresh
+> token dies → this turns on within a cycle and HA shows **Re-authenticate**. Finish
+> that flow and it clears itself.
 
 Raw device payloads are exposed via each entity's `extra_state_attributes` **only
 when the integration logger is at `DEBUG`** — they are debug aids, not normal state.
