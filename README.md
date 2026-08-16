@@ -258,6 +258,16 @@ quota 500, M=4 — the numbers are identical to previous releases.)*
 polls stop entirely and the integration relies on the free webhook push until the
 quota resets at local midnight. This prevents a self-inflicted rate-limit ban.
 
+**Time-aware pacing (relaxation only).** The Economy / Survival tiers above are
+additionally *vetoed* whenever the **Projected Daily Calls** figure is still within
+the quota — i.e. when the current pace would comfortably finish the day under budget,
+the integration stays at Normal cadence even though the absolute remaining looks low.
+This removes the annoying case of throttling late in the day (e.g. 90 calls left at
+23:00, which is plenty). The veto can only *relax*, never tighten: a one-off burst
+raises the projection and simply falls through to the absolute tiers, and the Frozen
+floor is never vetoed. In short — throttling engages only when you are *both* low on
+budget *and* on track to overshoot it.
+
 Entering *Economy* logs at `INFO`; entering *Survival* and *Frozen* log at `WARNING`.
 The live state is exposed by the **Polling Tier** diagnostic sensor.
 

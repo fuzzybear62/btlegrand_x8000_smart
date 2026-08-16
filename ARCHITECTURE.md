@@ -139,8 +139,10 @@ Key methods:
 - `_async_update_data:` (adaptive poll loop):
   - budget net — if smart polling, derive tier from
     `remaining = daily_api_quota - call_count`: **frozen** (< `FROZEN` floor →
-    skip all scheduled polls, rely on free webhooks), **survival**, **economy**,
-    **normal**. Thresholds are quota fractions, active intervals are
+    skip all scheduled polls, rely on free webhooks), then a **pacing veto**
+    (`on_track = projected_daily_calls < quota` → stay Normal; relaxation only,
+    never applied to frozen), then **survival**, **economy**, **normal**.
+    Thresholds are quota fractions, active intervals are
     `normal_interval × factor`, passive = `active × passive_multiplier`.
     Publishes `current_tier` + enforced intervals for the diagnostics.
   - per-device skip logic (frozen short-circuit, then active vs passive by

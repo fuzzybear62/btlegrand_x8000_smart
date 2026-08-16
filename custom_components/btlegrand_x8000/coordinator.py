@@ -187,6 +187,18 @@ class BticinoCoordinator(DataUpdateCoordinator):
                 FROZEN_BUDGET_MIN, self.daily_api_quota * FROZEN_BUDGET_FRACTION
             )
 
+            # Time-aware pacing veto (RELAXATION ONLY). If, at the current pace,
+            # we are projected to finish the day within the quota, we are
+            # demonstrably on track: do NOT throttle (economy/survival) even
+            # though the absolute remaining budget looks low. This removes the
+            # main failure mode of a purely-absolute model (needless throttling
+            # late in the day, e.g. 90 calls left at 23:00). It can only relax,
+            # never tighten, so a one-off burst (which raises the projection)
+            # simply falls through to the absolute tiers. The frozen floor is
+            # NOT subject to the veto: it is the absolute last-resort guard
+            # against actually hitting zero.
+            on_track = self.projected_daily_calls < self.daily_api_quota
+
             if remaining < thr_frozen:
                 # FROZEN: skip all scheduled polls this cycle; webhooks keep data fresh.
                 frozen = True
@@ -196,6 +208,16 @@ class BticinoCoordinator(DataUpdateCoordinator):
                         "API BUDGET EXHAUSTED (%d left). Freezing scheduled polling "
                         "until midnight; relying on webhook push.",
                         remaining,
+                    )
+            elif on_track:
+                # Pacing says we are within budget -> stay at Normal cadence.
+                if (remaining < thr_economy) and _LOGGER.isEnabledFor(logging.DEBUG):
+                    _LOGGER.debug(
+                        "Budget low (%d left) but on track (projected %d <= quota %d); "
+                        "pacing veto keeps Normal cadence.",
+                        remaining,
+                        self.projected_daily_calls,
+                        self.daily_api_quota,
                     )
             elif remaining < thr_survival:
                 current_interval_active = self.normal_interval * SURVIVAL_INTERVAL_FACTOR
