@@ -34,17 +34,17 @@ Coordinator data shape (flat): `{ topology_id: <chronothermostat dict>, ... }`.
 | File | Lines | Role |
 |------|------:|------|
 | `manifest.json` | 14 | domain `btlegrand_x8000`, v1.0.0, cloud_polling, no deps |
-| `const.py` | 72 | DOMAIN, endpoints, `CONF_*` option keys, defaults, tuning bounds |
+| `const.py` | 93 | DOMAIN, endpoints, `CONF_*` option keys, defaults, tuning bounds, derived tier policy |
 | `__init__.py` | 121 | setup/unload, C2C subscription, webhook registration |
 | `auth.py` | 230 | OAuth code exchange + token refresh (shared aiohttp session) |
 | `api.py` | 403 | `BticinoX8000Api` — HTTP, rate-limit/401 handling, usage Store |
-| `coordinator.py` | 497 | `BticinoCoordinator` — adaptive polling, cool-down, webhook merge |
+| `coordinator.py` | 578 | `BticinoCoordinator` — adaptive polling, cool-down, webhook merge |
 | `webhook.py` | 99 | `BticinoX8000WebhookHandler` — validates push, fans out to coordinators |
 | `config_flow.py` | 598 | 3-step user flow (creds → auth code → select thermostats) + reconfigure menu (external URL / renew credentials) |
 | `climate.py` | 452 | `BticinoX8000Climate` — the thermostat entity |
-| `sensor.py` | 659 | 7 per-device sensors + 2 singleton diagnostics |
+| `sensor.py` | 803 | 7 per-device sensors + 4 singleton diagnostics (API count, skips, polling tier, projected calls) |
 | `select.py` | 358 | Program + Boost select entities |
-| `number.py` | 299 | 4 CONFIG numbers (interval, cool-down, debounce, quota) |
+| `number.py` | 338 | 5 CONFIG numbers (interval, cool-down, debounce, quota, passive multiplier) |
 | `switch.py` | 215 | 2 CONFIG switches (notify errors, smart polling) |
 | `button.py` | 81 | Force-token-refresh button |
 | `services.yaml` | 2 | empty (services removed; use entities) |
@@ -60,14 +60,22 @@ Coordinator data shape (flat): `{ topology_id: <chronothermostat dict>, ... }`.
   `CONF_COOL_DOWN="cool_down_interval"`, `CONF_DEBOUNCE="webhook_debounce"`,
   `CONF_NOTIFY_ERRORS="notify_errors"`,
   `CONF_BTLG_DAILY_QUOTA="btlg_api_daily_quota"`,
-  `CONF_SMART_POLLING="smart_polling_enabled"`.
+  `CONF_SMART_POLLING="smart_polling_enabled"`,
+  `CONF_PASSIVE_MULTIPLIER="passive_multiplier"`.
 - Bounds used by `number.py`: `MIN/MAX_UPDATE_INTERVAL`, `MIN/MAX_COOL_DOWN`,
-  `MIN/MAX_DEBOUNCE` (0.5–5.0s), `MIN/MAX_BTLG_DAILY_QUOTA` (100–10000).
-- `PASSIVE_POLLING_MULTIPLIER` — used (coordinator:146).
-- Adaptive-throttle tiers (consumed by the coordinator budget net):
-  `BUDGET_ECONOMY_THRESHOLD` (100), `BUDGET_SURVIVAL_THRESHOLD` (40),
-  `ECONOMY_ACTIVE_INTERVAL_MIN` (30), `SURVIVAL_ACTIVE_INTERVAL_MIN` (60);
-  passive intervals are derived as `active * PASSIVE_POLLING_MULTIPLIER`.
+  `MIN/MAX_DEBOUNCE` (0.5–5.0s), `MIN/MAX_BTLG_DAILY_QUOTA` (100–10000),
+  `MIN/MAX_PASSIVE_MULTIPLIER` (1–12).
+- `DEFAULT_PASSIVE_MULTIPLIER` (4) — now a user knob (`passive_multiplier`),
+  read into `coordinator.passive_multiplier`.
+- Adaptive-throttle tiers are **derived** from the two user knobs, not fixed:
+  thresholds are fractions of the quota (`ECONOMY_BUDGET_FRACTION`=0.20,
+  `SURVIVAL_BUDGET_FRACTION`=0.08, `FROZEN_BUDGET_FRACTION`=0.02 /
+  `FROZEN_BUDGET_MIN`=5); active intervals are multiples of `update_interval`
+  (`ECONOMY_INTERVAL_FACTOR`=2, `SURVIVAL_INTERVAL_FACTOR`=4); passive =
+  `active × passive_multiplier`. Tier labels `TIER_*`. At defaults (15 min /
+  quota 500 / 4×) the enforced values equal the old constants (100/40, 30/60).
+- `PROJECTION_MIN_DAY_FRACTION` (0.04) — below this the projected-calls sensor
+  reports the raw count instead of a noisy extrapolation.
 - `CLIENT_ID` / `CLIENT_SECRET` / `SUBSCRIPTION_KEY` are empty strings (supplied
   by the user at config-flow time).
 - Release cleanup removed the dead scaffolding (`BTICINO_DAILY_RESERVE`,
@@ -119,18 +127,24 @@ Coordinator data shape (flat): `{ topology_id: <chronothermostat dict>, ... }`.
 ## 7. coordinator.py — `BticinoCoordinator` (`coordinator.py`)
 
 Live state initialized in `__init__` from `entry.options`:
-`normal_interval:61`, `cool_down_interval:66`, `debounce_time:70`,
-`notify_errors:74`, `daily_api_quota:79`, `smart_polling_enabled:83`,
-`skipped_count:116`, `in_cool_down:121`.
+`normal_interval`, `cool_down_interval`, `debounce_time`, `notify_errors`,
+`daily_api_quota`, `smart_polling_enabled`, `passive_multiplier`,
+`skipped_count`, `in_cool_down`. Smart-polling diagnostics also live here:
+`current_tier`, `current_interval_active`, `current_interval_passive`.
 
 Key methods:
-- `_async_update_data:` (adaptive poll loop, ~`:138–285`):
-  - budget net `:140–166` — if smart polling, shrink cadence when
-    `remaining = daily_api_quota - call_count` drops below
-    `BUDGET_ECONOMY_THRESHOLD` / `BUDGET_SURVIVAL_THRESHOLD`, using the named
-    tier intervals from `const.py` (passive = active × multiplier).
-  - per-device skip logic `:179–215` (active vs passive by `mode`), copies old
-    data on skip `:213`.
+- `projected_daily_calls` (property) — `call_count / day_fraction` (local day);
+  returns the raw count before `PROJECTION_MIN_DAY_FRACTION`. Backs the
+  *Projected Daily Calls* diagnostic sensor.
+- `_async_update_data:` (adaptive poll loop):
+  - budget net — if smart polling, derive tier from
+    `remaining = daily_api_quota - call_count`: **frozen** (< `FROZEN` floor →
+    skip all scheduled polls, rely on free webhooks), **survival**, **economy**,
+    **normal**. Thresholds are quota fractions, active intervals are
+    `normal_interval × factor`, passive = `active × passive_multiplier`.
+    Publishes `current_tier` + enforced intervals for the diagnostics.
+  - per-device skip logic (frozen short-circuit, then active vs passive by
+    `mode`), copies old data on skip.
   - success/cool-down recovery `:228–246`; inline 429 abort `:225–226`.
   - typed excepts `:255–268`; generic safety-net `:270–279`.
 - `_trigger_rate_limit_abort:287` — sets `in_cool_down`, fires `{DOMAIN}_event`,

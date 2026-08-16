@@ -113,6 +113,9 @@ async def async_setup_entry(
     # Singleton diagnostic sensors: total API count and skipped-poll count.
     entities.append(BticinoApiCountSensor(coordinator))
     entities.append(BticinoSkippedPollsSensor(coordinator))
+    # Smart-polling effectiveness diagnostics.
+    entities.append(BticinoPollingTierSensor(coordinator))
+    entities.append(BticinoProjectedCallsSensor(coordinator))
 
     _LOGGER.debug("Total entities to add: %d", len(entities))
 
@@ -624,6 +627,147 @@ class BticinoSkippedPollsSensor(CoordinatorEntity, SensorEntity):
     @callback
     def _handle_coordinator_update(self) -> None:
         """Standard update handler."""
+        self._async_handle_any_update()
+
+
+class BticinoPollingTierSensor(CoordinatorEntity, SensorEntity):
+    """
+    Diagnostic sensor exposing the current smart-polling throttling tier.
+
+    Values: disabled / normal / economy / survival / frozen. Together with the
+    enforced intervals (in the attributes) it makes the adaptive behaviour
+    observable, so its real effectiveness can be measured rather than guessed.
+    """
+
+    _attr_icon = "mdi:speedometer"
+    _attr_name = "Polling Tier"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_device_class = SensorDeviceClass.ENUM
+    _attr_options = ["disabled", "normal", "economy", "survival", "frozen"]
+    _attr_has_entity_name = True
+
+    def __init__(self, coordinator: BticinoCoordinator):
+        super().__init__(coordinator)
+        self._attr_unique_id = f"{DOMAIN}_polling_tier_{coordinator.entry.entry_id}"
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        """Link to the Cloud Service device."""
+        return DeviceInfo(
+            identifiers={(DOMAIN, self.coordinator.entry.entry_id)},
+            name="BtLegrand Service",
+            manufacturer="BtLegrand",
+            model="API Gateway",
+            entry_type=DeviceEntryType.SERVICE,
+        )
+
+    @property
+    def available(self) -> bool:
+        """Always available."""
+        return True
+
+    @property
+    def native_value(self) -> str:
+        """Return the current throttling tier."""
+        return getattr(self.coordinator, "current_tier", "normal")
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        """Expose the intervals actually enforced this cycle."""
+        active = getattr(self.coordinator, "current_interval_active", None)
+        passive = getattr(self.coordinator, "current_interval_passive", None)
+        return {
+            "active_interval_min": active.total_seconds() / 60 if active else None,
+            "passive_interval_min": passive.total_seconds() / 60 if passive else None,
+            "passive_multiplier": getattr(self.coordinator, "passive_multiplier", None),
+            "remaining_calls": self.coordinator.daily_api_quota - self.coordinator.api.call_count,
+        }
+
+    async def async_added_to_hass(self) -> None:
+        """Register for ALL coordinator updates."""
+        await super().async_added_to_hass()
+        self.async_on_remove(
+            self.coordinator.async_add_listener(self._async_handle_any_update)
+        )
+
+    @callback
+    def _async_handle_any_update(self) -> None:
+        try:
+            self.async_write_ha_state()
+        except Exception:
+            pass
+
+    @callback
+    def _handle_coordinator_update(self) -> None:
+        self._async_handle_any_update()
+
+
+class BticinoProjectedCallsSensor(CoordinatorEntity, SensorEntity):
+    """
+    Diagnostic sensor projecting total API calls by midnight.
+
+    Extrapolates today's usage over the elapsed fraction of the day. Compared to
+    the Daily API Quota it answers the core question: are we on track to stay
+    within budget? A value above the quota means the current pace is too fast.
+    """
+
+    _attr_icon = "mdi:chart-line"
+    _attr_name = "Projected Daily Calls"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_native_unit_of_measurement = "calls"
+    _attr_has_entity_name = True
+
+    def __init__(self, coordinator: BticinoCoordinator):
+        super().__init__(coordinator)
+        self._attr_unique_id = f"{DOMAIN}_projected_calls_{coordinator.entry.entry_id}"
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        """Link to the Cloud Service device."""
+        return DeviceInfo(
+            identifiers={(DOMAIN, self.coordinator.entry.entry_id)},
+            name="BtLegrand Service",
+            manufacturer="BtLegrand",
+            model="API Gateway",
+            entry_type=DeviceEntryType.SERVICE,
+        )
+
+    @property
+    def available(self) -> bool:
+        """Always available."""
+        return True
+
+    @property
+    def native_value(self) -> int:
+        """Return the projected end-of-day call total."""
+        return self.coordinator.projected_daily_calls
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        """Expose the budget and whether the projection exceeds it."""
+        quota = self.coordinator.daily_api_quota
+        return {
+            "daily_quota": quota,
+            "over_budget": self.coordinator.projected_daily_calls > quota,
+        }
+
+    async def async_added_to_hass(self) -> None:
+        """Register for ALL coordinator updates."""
+        await super().async_added_to_hass()
+        self.async_on_remove(
+            self.coordinator.async_add_listener(self._async_handle_any_update)
+        )
+
+    @callback
+    def _async_handle_any_update(self) -> None:
+        try:
+            self.async_write_ha_state()
+        except Exception:
+            pass
+
+    @callback
+    def _handle_coordinator_update(self) -> None:
         self._async_handle_any_update()
 
 

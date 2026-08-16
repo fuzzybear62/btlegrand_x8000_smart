@@ -23,6 +23,7 @@ from .const import (
     CONF_COOL_DOWN,
     CONF_DEBOUNCE,
     CONF_BTLG_DAILY_QUOTA,
+    CONF_PASSIVE_MULTIPLIER,
     MIN_UPDATE_INTERVAL,
     MAX_UPDATE_INTERVAL,
     MIN_COOL_DOWN,
@@ -31,6 +32,8 @@ from .const import (
     MAX_DEBOUNCE,
     MIN_BTLG_DAILY_QUOTA,
     MAX_BTLG_DAILY_QUOTA,
+    MIN_PASSIVE_MULTIPLIER,
+    MAX_PASSIVE_MULTIPLIER,
 )
 from .coordinator import BticinoCoordinator
 
@@ -50,6 +53,7 @@ async def async_setup_entry(
         BticinoCoolDownNumber(coordinator),
         BticinoDebounceNumber(coordinator),
         BticinoDailyQuotaNumber(coordinator),
+        BticinoPassiveMultiplierNumber(coordinator),
     ]
     
     async_add_entities(entities)
@@ -295,6 +299,41 @@ class BticinoDailyQuotaNumber(BticinoBaseNumber):
 
         # 1. Update Coordinator Memory
         self.coordinator.daily_api_quota = new_quota
-        
+
         # 2. Save to Disk
         await self._update_config_entry(CONF_BTLG_DAILY_QUOTA, new_quota, force_refresh=False)
+
+
+class BticinoPassiveMultiplierNumber(BticinoBaseNumber):
+    """
+    Configuration entity for the Passive Zone Multiplier.
+
+    OFF / antifrost thermostats are polled this many times slower than active
+    (heating/cooling) ones. Higher = fewer API calls on dormant zones.
+    Default: 4.
+    """
+    _attr_name = "Passive Zone Multiplier"
+    _attr_icon = "mdi:snowflake-thermometer"
+    _attr_key = "passive_multiplier"
+    _attr_native_unit_of_measurement = "x"
+
+    # Boundaries from const.py
+    _attr_native_min_value = MIN_PASSIVE_MULTIPLIER
+    _attr_native_max_value = MAX_PASSIVE_MULTIPLIER
+    _attr_native_step = 1
+
+    @property
+    def native_value(self) -> float:
+        """Return the current passive multiplier."""
+        return self.coordinator.passive_multiplier
+
+    async def async_set_native_value(self, value: float) -> None:
+        """Update the value."""
+        new_multiplier = int(value)
+        _LOGGER.info("User changed Passive Zone Multiplier to %sx", new_multiplier)
+
+        # 1. Update Coordinator Memory
+        self.coordinator.passive_multiplier = new_multiplier
+
+        # 2. Save to Disk (applied on the next update cycle)
+        await self._update_config_entry(CONF_PASSIVE_MULTIPLIER, new_multiplier, force_refresh=False)

@@ -27,12 +27,21 @@ from .const import (
     DEFAULT_BTLG_DAILY_QUOTA,
     CONF_SMART_POLLING,
     DEFAULT_SMART_POLLING,
-    PASSIVE_POLLING_MULTIPLIER,
-    # Adaptive API-budget throttling tiers
-    BUDGET_ECONOMY_THRESHOLD,
-    BUDGET_SURVIVAL_THRESHOLD,
-    ECONOMY_ACTIVE_INTERVAL_MIN,
-    SURVIVAL_ACTIVE_INTERVAL_MIN,
+    CONF_PASSIVE_MULTIPLIER,
+    DEFAULT_PASSIVE_MULTIPLIER,
+    # Adaptive API-budget throttling tiers (all derived from the two user knobs)
+    ECONOMY_BUDGET_FRACTION,
+    SURVIVAL_BUDGET_FRACTION,
+    FROZEN_BUDGET_FRACTION,
+    FROZEN_BUDGET_MIN,
+    ECONOMY_INTERVAL_FACTOR,
+    SURVIVAL_INTERVAL_FACTOR,
+    TIER_OFF,
+    TIER_NORMAL,
+    TIER_ECONOMY,
+    TIER_SURVIVAL,
+    TIER_FROZEN,
+    PROJECTION_MIN_DAY_FRACTION,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -84,6 +93,13 @@ class BticinoCoordinator(DataUpdateCoordinator):
         # Default: True (ON)
         self.smart_polling_enabled = entry.options.get(CONF_SMART_POLLING, DEFAULT_SMART_POLLING)
 
+        # 7. Passive Zone Multiplier (Smart Scheduling)
+        # OFF / antifrost zones are polled this many times slower than active ones.
+        # Read from Options, fallback to Default (4x).
+        self.passive_multiplier = entry.options.get(
+            CONF_PASSIVE_MULTIPLIER, DEFAULT_PASSIVE_MULTIPLIER
+        )
+
         # ---------------------------------------------------------------
         
         # Build a map of Plant IDs to Topology IDs (Thermostats) 
@@ -116,6 +132,12 @@ class BticinoCoordinator(DataUpdateCoordinator):
         # Diagnostic counter for Smart Polling efficiency
         self.skipped_count = 0
 
+        # Smart-polling diagnostics: expose the current throttling state and the
+        # intervals actually being enforced, so effectiveness is measurable.
+        self.current_tier: str = TIER_OFF if not self.smart_polling_enabled else TIER_NORMAL
+        self.current_interval_active: timedelta = self.normal_interval
+        self.current_interval_passive: timedelta = self.normal_interval * self.passive_multiplier
+
         # Explicit flag for Rate Limit state.
         # This allows other components (like number.py) to know if we are currently
         # in a "Ban" state without guessing based on interval times.
@@ -139,40 +161,69 @@ class BticinoCoordinator(DataUpdateCoordinator):
             raise UpdateFailed("Authentication broken")
 
         # --- BUDGET SAFETY NET (Stateless Budget Awareness) ---
-        # Calculate dynamic intervals based on remaining daily quota.
-        # This ensures we slow down if we are running out of calls.
-        
-        # Default: Use user configured settings
+        # Derive dynamic intervals from the remaining daily quota. The tiers and
+        # their thresholds are computed from the two user knobs (normal_interval
+        # and daily_api_quota) so they scale coherently with any user setting.
+        # Passive (OFF / antifrost) zones are always self.passive_multiplier x
+        # slower than active ones, mirroring normal mode.
+        #
+        # 'frozen' is the end-of-day safety floor: when almost no budget is left
+        # we stop scheduled polling entirely and rely on the (free) webhook push,
+        # which prevents a self-inflicted rate-limit ban before midnight.
+
+        # Default: use the user-configured base interval (Normal / smart off).
         current_interval_active = self.normal_interval
-        current_interval_passive = self.normal_interval * PASSIVE_POLLING_MULTIPLIER
+        current_interval_passive = self.normal_interval * self.passive_multiplier
+        self.current_tier = TIER_OFF if not self.smart_polling_enabled else TIER_NORMAL
+        frozen = False
 
         if self.smart_polling_enabled:
             remaining = self.daily_api_quota - self.api.call_count
 
-            # Two throttling tiers as the daily budget runs low. Passive zones are
-            # always PASSIVE_POLLING_MULTIPLIER x slower than active ones.
-            if remaining < BUDGET_SURVIVAL_THRESHOLD:
-                current_interval_active = timedelta(minutes=SURVIVAL_ACTIVE_INTERVAL_MIN)
-                current_interval_passive = current_interval_active * PASSIVE_POLLING_MULTIPLIER
+            # Derived tier thresholds (calls) and the frozen floor.
+            thr_economy = self.daily_api_quota * ECONOMY_BUDGET_FRACTION
+            thr_survival = self.daily_api_quota * SURVIVAL_BUDGET_FRACTION
+            thr_frozen = min(
+                FROZEN_BUDGET_MIN, self.daily_api_quota * FROZEN_BUDGET_FRACTION
+            )
+
+            if remaining < thr_frozen:
+                # FROZEN: skip all scheduled polls this cycle; webhooks keep data fresh.
+                frozen = True
+                self.current_tier = TIER_FROZEN
+                if _LOGGER.isEnabledFor(logging.WARNING):
+                    _LOGGER.warning(
+                        "API BUDGET EXHAUSTED (%d left). Freezing scheduled polling "
+                        "until midnight; relying on webhook push.",
+                        remaining,
+                    )
+            elif remaining < thr_survival:
+                current_interval_active = self.normal_interval * SURVIVAL_INTERVAL_FACTOR
+                current_interval_passive = current_interval_active * self.passive_multiplier
+                self.current_tier = TIER_SURVIVAL
                 if _LOGGER.isEnabledFor(logging.WARNING):
                     _LOGGER.warning(
                         "CRITICAL API BUDGET (%d left). Enforcing survival intervals (%dm/%dm).",
                         remaining,
-                        SURVIVAL_ACTIVE_INTERVAL_MIN,
-                        SURVIVAL_ACTIVE_INTERVAL_MIN * PASSIVE_POLLING_MULTIPLIER,
+                        current_interval_active.total_seconds() / 60,
+                        current_interval_passive.total_seconds() / 60,
                     )
-
-            elif remaining < BUDGET_ECONOMY_THRESHOLD:
-                current_interval_active = timedelta(minutes=ECONOMY_ACTIVE_INTERVAL_MIN)
-                current_interval_passive = current_interval_active * PASSIVE_POLLING_MULTIPLIER
+            elif remaining < thr_economy:
+                current_interval_active = self.normal_interval * ECONOMY_INTERVAL_FACTOR
+                current_interval_passive = current_interval_active * self.passive_multiplier
+                self.current_tier = TIER_ECONOMY
                 if _LOGGER.isEnabledFor(logging.INFO):
                     _LOGGER.info(
                         "Low API Budget (%d left). Enforcing economy intervals (%dm/%dm).",
                         remaining,
-                        ECONOMY_ACTIVE_INTERVAL_MIN,
-                        ECONOMY_ACTIVE_INTERVAL_MIN * PASSIVE_POLLING_MULTIPLIER,
+                        current_interval_active.total_seconds() / 60,
+                        current_interval_passive.total_seconds() / 60,
                     )
-        
+
+        # Publish the enforced intervals for the diagnostic sensors.
+        self.current_interval_active = current_interval_active
+        self.current_interval_passive = current_interval_passive
+
         # --------------------------------------------------------
 
         _LOGGER.debug("Starting sequential update for %s plants", len(self.plant_map))
@@ -187,12 +238,20 @@ class BticinoCoordinator(DataUpdateCoordinator):
 
                 # --- SMART ENERGY SAVING LOGIC ---
                 should_update = True
-                
+
+                # FROZEN tier: budget almost exhausted. Skip every scheduled poll
+                # this cycle and lean on the free webhook push. We still require
+                # prior data so entities keep their last known value.
+                if frozen and self.data and topology_id in self.data:
+                    should_update = False
+                    self.skipped_count += 1
+                    _LOGGER.debug("Smart Polling: FROZEN, skipping scheduled poll for %s", topology_id)
+
                 # Only apply logic if enabled AND we have previous data AND not in emergency cool down
-                if self.smart_polling_enabled and self.data and not self.in_cool_down:
+                elif self.smart_polling_enabled and self.data and not self.in_cool_down:
                     last_data = self.data.get(topology_id)
                     last_update = self._last_update_time.get(topology_id)
-                    
+
                     if last_data and last_update:
                         # Check status: "Active" (Heating/Cooling) vs "Passive" (Off)
                         mode = last_data.get("mode", "").lower()
@@ -383,6 +442,28 @@ class BticinoCoordinator(DataUpdateCoordinator):
         """
         # Triggers the _handle_coordinator_update method on all registered entities
         self.async_update_listeners()
+
+    @property
+    def projected_daily_calls(self) -> int:
+        """
+        Estimate the total API calls we are on track to make by midnight.
+
+        This is the headline effectiveness metric: extrapolate the calls used so
+        far over the fraction of the (local) day already elapsed. Compared against
+        the daily quota it tells at a glance whether smart polling is keeping us
+        under budget. call_count resets at local midnight (see api.py), so the day
+        boundary here is intentionally local time too.
+        """
+        used = self.api.call_count
+        now = dt_util.now()
+        start_of_day = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        day_fraction = (now - start_of_day).total_seconds() / 86400
+
+        # Too early in the day: extrapolation would be wildly noisy, so just
+        # report the raw count instead of a meaningless projection.
+        if day_fraction < PROJECTION_MIN_DAY_FRACTION:
+            return used
+        return round(used / day_fraction)
 
     def update_from_webhook(self, webhook_data: dict[str, Any]) -> None:
         """

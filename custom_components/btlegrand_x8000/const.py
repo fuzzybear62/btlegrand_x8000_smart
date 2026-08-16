@@ -34,6 +34,7 @@ CONF_DEBOUNCE = "webhook_debounce"
 CONF_NOTIFY_ERRORS = "notify_errors"
 CONF_BTLG_DAILY_QUOTA = "btlg_api_daily_quota"
 CONF_SMART_POLLING = "smart_polling_enabled"
+CONF_PASSIVE_MULTIPLIER = "passive_multiplier"
 
 # Default option values.
 DEFAULT_UPDATE_INTERVAL = 15     # minutes (standard polling)
@@ -43,9 +44,10 @@ DEFAULT_NOTIFY_ERRORS = True     # show a persistent notification on error
 DEFAULT_BTLG_DAILY_QUOTA = 500   # calls/day (Legrand Starter Kit limit)
 DEFAULT_SMART_POLLING = True     # adaptive polling on by default
 
-# Passive-mode multiplier: an OFF thermostat is polled this many times less
-# often than an active one (e.g. 15 min * 4 = 60 min for inactive zones).
-PASSIVE_POLLING_MULTIPLIER = 4
+# Passive-mode multiplier: an OFF / antifrost thermostat is polled this many
+# times less often than an active (heating/cooling) one, e.g. with a 15 min
+# base interval a passive zone is polled every 15 * 4 = 60 min. User-tunable.
+DEFAULT_PASSIVE_MULTIPLIER = 4
 
 # Bounds enforced by the number entities.
 MIN_UPDATE_INTERVAL = 1          # minutes
@@ -56,17 +58,36 @@ MIN_DEBOUNCE = 0.5               # seconds
 MAX_DEBOUNCE = 5.0               # seconds
 MIN_BTLG_DAILY_QUOTA = 100       # calls/day
 MAX_BTLG_DAILY_QUOTA = 10000     # calls/day
+MIN_PASSIVE_MULTIPLIER = 1       # 1 = treat passive zones like active ones
+MAX_PASSIVE_MULTIPLIER = 12      # 12 = extreme slow-down for dormant zones
 
-# Adaptive API-budget throttling (smart polling).
+# --- Adaptive API-budget throttling (smart polling) ---
 # When smart polling is on, the coordinator slows down as the remaining daily
-# budget (daily_api_quota - calls_used) runs low, in two tiers. The interval
-# below applies to active (heating/cooling) zones; passive (OFF / antifrost)
-# zones are polled PASSIVE_POLLING_MULTIPLIER x slower, mirroring normal mode.
+# budget (daily_api_quota - calls_used) runs low. The tiers are DERIVED from the
+# two user knobs (update_interval and daily_api_quota) so they scale coherently
+# with any user setting instead of being fixed magic numbers.
 #
-# Tier thresholds, in API calls still available for the day:
-BUDGET_ECONOMY_THRESHOLD = 100    # below this -> economy tier (slower)
-BUDGET_SURVIVAL_THRESHOLD = 40    # below this -> survival tier (slowest)
+# Tier thresholds, expressed as a fraction of the daily quota. Below the
+# fraction the corresponding (slower) tier engages. Example at quota 500:
+# economy < 100, survival < 40, frozen < 10.
+ECONOMY_BUDGET_FRACTION = 0.20    # < 20% of quota -> economy tier
+SURVIVAL_BUDGET_FRACTION = 0.08   # < 8%  of quota -> survival tier
+FROZEN_BUDGET_FRACTION = 0.02     # < 2%  of quota -> freeze scheduled polling
+FROZEN_BUDGET_MIN = 5             # never freeze with more than this many calls left
 #
-# Active-zone interval per tier, in minutes:
-ECONOMY_ACTIVE_INTERVAL_MIN = 30   # -> passive 30 * 4 = 120 min
-SURVIVAL_ACTIVE_INTERVAL_MIN = 60  # -> passive 60 * 4 = 240 min
+# Active-zone interval per tier, expressed as a multiple of update_interval.
+# Passive zones are additionally slowed by the passive multiplier. Example at
+# update_interval 15 min: economy active 30 min, survival active 60 min.
+ECONOMY_INTERVAL_FACTOR = 2       # economy active interval = base * 2
+SURVIVAL_INTERVAL_FACTOR = 4      # survival active interval = base * 4
+
+# Tier labels surfaced by the diagnostic sensor.
+TIER_OFF = "disabled"            # smart polling switched off
+TIER_NORMAL = "normal"
+TIER_ECONOMY = "economy"
+TIER_SURVIVAL = "survival"
+TIER_FROZEN = "frozen"
+
+# Below this fraction of the day elapsed the projected-daily-calls figure is
+# too noisy to be meaningful, so the diagnostic sensor reports the raw count.
+PROJECTION_MIN_DAY_FRACTION = 0.04  # ~ first hour of the day

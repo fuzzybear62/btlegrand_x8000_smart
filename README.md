@@ -31,6 +31,7 @@ volume stays inside the quota.
 4. [Configuration](#configuration)
    - [Setup flow](#setup-flow)
    - [Tunable options](#tunable-options)
+   - [Reconfiguring after install](#reconfiguring-after-install)
 5. [Architecture](#architecture)
 6. [Core Logic & Algorithms](#core-logic--algorithms)
 7. [Entities](#entities)
@@ -135,19 +136,24 @@ the running coordinator and persist to the config entry) — no reload needed.
 | Option | Entity type | Default | Range | Description |
 | --- | --- | --- | --- | --- |
 | **Update Interval** | Number | `15 min` | 1–120 min | Base polling interval for *active* devices. Lower = more responsive, more calls. |
+| **Passive Zone Multiplier** | Number | `4 ×` | 1–12 | How much slower *passive* (Off / anti-frost) zones are polled vs active ones. `1` treats them like active zones; higher = fewer calls on dormant zones. |
 | **Smart Energy Saving** | Switch | `ON` | — | Enables adaptive per-device scheduling (passive devices polled less often) and the budget safety net. |
 | **Daily API Quota** | Number | `500` | 100–10000 | Your Legrand account's daily call limit. Drives the budget safety net. (Starter Kit default is 500.) |
 | **Cool Down Interval** | Number | `60 min` | 15–180 min | Pause duration after a rate-limit / auth failure before the next attempt. |
 | **Notify Errors** | Switch | `ON` | — | Raise a persistent notification when the integration pauses due to an API error. |
 | **Webhook Debounce** | Number | `1.0 s` | 0.5–5.0 s | Coalescing window for rapid webhook bursts (e.g. sliding the device's touch bar). |
 
+> **Rule of thumb.** *Fewer calls:* raise **Update Interval** and/or **Passive Zone Multiplier**, or lower **Daily API Quota** (throttling engages sooner). *More responsive:* lower both. `Smart Energy Saving = OFF` ignores both axes and polls every device at the fixed **Update Interval**.
+
 ### Reconfiguring after install
 
-The thermostat selection is fixed at install time, but two things can be changed
-in place via **Settings → Devices & Services → (entry) → ⋮ → Reconfigure**, which
-opens a menu with two options. Neither touches the running integration until the
-change is validated — if you cancel or authorization fails, the entry keeps
-working on its current settings.
+Three install-time choices can be changed in place — without removing and
+re-adding the integration — via **Settings → Devices & Services → (entry) → ⋮ →
+Reconfigure**, which opens a menu with three options: **external URL**,
+**Legrand credentials**, and **thermostat selection**. None of them touches the
+running integration until the change is validated — if you cancel or
+authorization fails, the entry keeps working on its current settings, so a
+reconfigure can never leave you worse off.
 
 **Change external URL (webhook target).** Useful when your domain / DDNS changes
 or you enable/disable a reverse proxy: without it, the Legrand push subscription
@@ -218,27 +224,42 @@ cycle instead of polling them uniformly:
   **Update Interval** (default 15 min) even when the boiler is idle, so demand
   changes are captured promptly.
 - **Passive devices** — in `Off` or `Protection` (anti-frost) mode. Their interval is
-  multiplied by **4×** (default 60 min), on the assumption they won't change without
-  user action.
+  multiplied by the **Passive Zone Multiplier** (default 4× → 60 min), on the
+  assumption they won't change without user action.
 
-For a mix of unused zones (guest rooms, off-season devices) this avoids roughly
-**75%** of their would-be calls. Every skipped poll is counted by the *Smart Polling
-Skips* diagnostic sensor.
+For a mix of unused zones (guest rooms, off-season devices) the default 4× avoids
+roughly **75%** of their would-be calls. Every skipped poll is counted by the *Smart
+Polling Skips* diagnostic sensor.
+
+> **Webhooks are free.** A push from Legrand carries the full device state, so it
+> updates the entity **without** an API call *and* resets the device's poll timer —
+> i.e. real changes make polling *rarer*, not more frequent. Polling is only the
+> safety net for missed pushes.
 
 ### 2. Budget safety net (quota-aware throttle)
 
 The coordinator continuously compares `api_call_count` against the **Daily API
 Quota**. As the remaining budget falls, it tightens the schedule so the day can be
-finished without a ban. The tiers are named constants (no magic numbers), and each
-tier's passive interval is derived as `active × 4`:
+finished without a ban. The tiers are **derived from the two user knobs** rather than
+fixed magic numbers: thresholds scale with the quota, active intervals scale with the
+**Update Interval**, and passive intervals are `active × Passive Zone Multiplier`.
 
-| Remaining calls | Mode | Active / Passive interval |
-| --- | --- | --- |
-| **> 100** | Normal | 15 min / 60 min |
-| **≤ 100** | Economy | 30 min / 120 min |
-| **≤ 40** | Survival | 60 min / 240 min |
+| Remaining budget | Mode | Active interval | Passive interval | Example @ defaults |
+| --- | --- | --- | --- | --- |
+| **≥ 20% quota** | Normal | `base` | `base × M` | 15 / 60 min |
+| **< 20% quota** | Economy | `base × 2` | `base × 2 × M` | 30 / 120 min |
+| **< 8% quota** | Survival | `base × 4` | `base × 4 × M` | 60 / 240 min |
+| **< 2% quota** (min 5 calls) | Frozen | — scheduled polling paused — | | rely on webhooks |
 
-Entering *Economy* logs at `INFO`; entering *Survival* logs at `WARNING`.
+*(`base` = Update Interval, `M` = Passive Zone Multiplier. At the defaults — 15 min,
+quota 500, M=4 — the numbers are identical to previous releases.)*
+
+**Frozen** is the end-of-day safety floor: with almost no budget left, scheduled
+polls stop entirely and the integration relies on the free webhook push until the
+quota resets at local midnight. This prevents a self-inflicted rate-limit ban.
+
+Entering *Economy* logs at `INFO`; entering *Survival* and *Frozen* log at `WARNING`.
+The live state is exposed by the **Polling Tier** diagnostic sensor.
 
 ### 3. Fail-fast & cool-down
 
@@ -269,10 +290,16 @@ left in place** — by design, not an oversight:
   count against your daily quota**, and once the HA webhook is gone the pushes are
   simply answered with `404`.
 
-If you change your external URL across installs and want to tidy up stale
-subscriptions on the Legrand side, the API client exposes
-`get_subscriptions_c2c_notifications` / `delete_subscribe_c2c_notifications` for a
-manual one-off cleanup. These are deliberately never called automatically.
+Note the asymmetry with the **Reconfigure** flows: removing the integration
+leaves the subscription in place (above), but reconfiguring *does* clean up the
+now-stale subscription automatically — changing the **external URL** deletes the
+old-URL subscription, and dropping the last thermostat of a plant via **Add /
+remove thermostats** deletes that plant's subscription. Both are best-effort and
+reversible (a re-subscribe just returns `409`/`200` on the next reload).
+
+For any leftover stale subscription you still want to tidy up by hand, the API
+client exposes `get_subscriptions_c2c_notifications` /
+`delete_subscribe_c2c_notifications` for a manual one-off cleanup.
 
 ---
 
@@ -298,6 +325,7 @@ Under the singleton *"BtLegrand Service"* device:
 | Entity | Platform | Notes |
 | --- | --- | --- |
 | **Update Interval** | `number` | Base active interval. |
+| **Passive Zone Multiplier** | `number` | How much slower Off/anti-frost zones are polled. |
 | **Cool Down Interval** | `number` | Post-error pause. |
 | **Webhook Debounce** | `number` | Push coalescing window. |
 | **Daily API Quota** | `number` | Account limit for the budget net. |
@@ -306,6 +334,8 @@ Under the singleton *"BtLegrand Service"* device:
 | **Force Token Refresh** | `button` | Manually renews the OAuth token (works even when auth is broken). |
 | **API Call Count (global)** | `sensor` | Diagnostic: total calls today (resets at midnight). |
 | **Smart Polling Skips** | `sensor` | Diagnostic: polls avoided by the optimizer. |
+| **Polling Tier** | `sensor` | Diagnostic: current throttle tier (disabled/normal/economy/survival/frozen) + enforced intervals in attributes. |
+| **Projected Daily Calls** | `sensor` | Diagnostic: calls we are on track to make by midnight; compare to the quota. |
 
 > The tuning entities are always `available` (even while the API is rate-limited), so
 > you can retune the integration out of a cool-down.
@@ -319,6 +349,14 @@ Under the singleton *"BtLegrand Service"* device:
 - **API Usage (Per Device)** — how many of those calls targeted each thermostat.
 - **Smart Polling Skips** — how many polls the optimizer avoided. A higher number
   means higher efficiency.
+- **Polling Tier** — the throttle state right now (`disabled` / `normal` / `economy` /
+  `survival` / `frozen`). Its attributes expose the exact active/passive intervals
+  being enforced and the remaining budget, so the adaptive behaviour is observable.
+- **Projected Daily Calls** — today's usage extrapolated to midnight. If it stays
+  **below** the Daily API Quota, smart polling is doing its job; a value above the
+  quota (attribute `over_budget: true`) means the current pace is too fast. This is
+  the single best gauge of real effectiveness. *(Reports the raw count during the
+  first hour of the day, when extrapolation would be too noisy.)*
 
 Raw device payloads are exposed via each entity's `extra_state_attributes` **only
 when the integration logger is at `DEBUG`** — they are debug aids, not normal state.
