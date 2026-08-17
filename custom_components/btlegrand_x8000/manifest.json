@@ -12,5 +12,5 @@
   "integration_type": "hub",
   "iot_class": "cloud_polling",
   "issue_tracker": "https://github.com/fuzzybear62/btlegrand_x8000_smart/issues",
-  "version": "1.5.6"
+  "version": "1.5.7"
 }

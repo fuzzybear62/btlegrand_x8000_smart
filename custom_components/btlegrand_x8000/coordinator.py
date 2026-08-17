@@ -352,6 +352,17 @@ class X8000Coordinator(DataUpdateCoordinator):
                             data[topology_id] = chrono_list[0]
                             # Update timestamp for Smart Polling
                             self._last_update_time[topology_id] = now
+                        else:
+                            # 200 OK but no chronothermostat payload: nothing to store,
+                            # so the device would silently fall through to the
+                            # preserve/unavailable path. Surface it instead of
+                            # swallowing it, since it is indistinguishable from a
+                            # transient glitch without a log line.
+                            _LOGGER.warning(
+                                "Empty chronothermostat payload for %s (HTTP 200, no data). "
+                                "Keeping last-known state.",
+                                topology_id
+                            )
                     else:
                         _LOGGER.warning(
                             "Update failed for %s. Status code: %s", 

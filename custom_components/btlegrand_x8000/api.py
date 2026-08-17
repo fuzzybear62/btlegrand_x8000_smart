@@ -283,6 +283,11 @@ class X8000Api:
 
             attempts = 0
             max_attempts = 3
+            # 408 is the Legrand cloud's own gateway->module timeout: transient and
+            # per-module, so it is retriable like a 5xx, but with a tighter cap
+            # (a single retry) to avoid burning budget/latency on a genuinely slow
+            # module. Each attempt still counts one call against the daily quota.
+            timeout_max_attempts = 2
             current_delay = API_DELAY_SECONDS
             
             while attempts < max_attempts:
@@ -371,11 +376,18 @@ class X8000Api:
                             self.api_rate_limit_count += 1
                             raise RateLimitError("Persistent Rate Limit (429) detected")
 
-                        # CASE 4: SERVER ERROR (5xx)
-                        if status_code >= 500:
-                            if attempts < max_attempts:
+                        # CASE 4: SERVER ERROR (5xx) or REQUEST TIMEOUT (408) - RETRIABLE
+                        # 5xx retries up to max_attempts; 408 (cloud->module timeout)
+                        # gets a single retry (timeout_max_attempts) to catch the blip
+                        # in the SAME cycle instead of leaving the device unavailable
+                        # until the next scheduled poll.
+                        if status_code >= 500 or status_code == 408:
+                            is_timeout = (status_code == 408)
+                            retry_cap = timeout_max_attempts if is_timeout else max_attempts
+                            if attempts < retry_cap:
                                 _LOGGER.warning(
-                                    "Server Error %s detected. Sleeping for %s seconds before retry...", 
+                                    "%s %s detected. Sleeping for %s seconds before retry...",
+                                    "Request Timeout" if is_timeout else "Server Error",
                                     status_code, current_delay
                                 )
                                 await asyncio.sleep(current_delay)
@@ -383,7 +395,10 @@ class X8000Api:
                                 continue
                             else:
                                 self.api_other_fail_count += 1
-                                raise X8000ApiError(f"Persistent Server Error {status_code} after {max_attempts} attempts")
+                                raise X8000ApiError(
+                                    f"Persistent {'Timeout' if is_timeout else 'Server'} Error "
+                                    f"{status_code} after {attempts} attempts"
+                                )
 
                         # CASE 5: CLIENT ERRORS (4xx)
                         _LOGGER.error("HTTP Client Error %s: %s", status_code, content)
