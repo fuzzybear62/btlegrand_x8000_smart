@@ -99,11 +99,11 @@ repository**:
 3. Add the repository URL
    `https://github.com/fuzzybear62/btlegrand_x8000_smart` and select the
    **Integration** category.
-4. The card **"Legrand/Bticino Smarther x8000 NOT Netatmo"** now appears in HACS —
+4. The card **"Legrand/Bticino Smarther X8000 (non-Netatmo)"** now appears in HACS —
    click **Download**.
 5. **Restart Home Assistant.**
 6. Add the integration: **Settings → Devices & Services → Add Integration →**
-   *Legrand/Bticino Smarther x8000*.
+   *Legrand/Bticino Smarther X8000*.
 
 ### Manual installation
 
@@ -264,20 +264,20 @@ cleaned up automatically.
 
 ```
 config_flow ──► __init__.async_setup_entry
-                     │  builds  BticinoX8000Api  +  BticinoCoordinator
+                     │  builds  X8000Api  +  X8000Coordinator
                      │  registers HA webhook + C2C subscription
                      ▼
-              BticinoCoordinator  ◄──── push ──── webhook.py  ◄──── Legrand cloud
+              X8000Coordinator  ◄──── push ──── webhook.py  ◄──── Legrand cloud
                (single source of truth)
                      │  adaptive poll loop  (cloud_polling)
                      ▼
    climate · sensor · binary_sensor · select · number · switch · button  (CoordinatorEntity)
 ```
 
-- **`BticinoX8000Api`** — serialized HTTP client (`Semaphore(1)`, one in-flight
+- **`X8000Api`** — serialized HTTP client (`Semaphore(1)`, one in-flight
   request), OAuth token refresh on `401`, rate-limit handling on `429`, and a
   persistent usage counter (per-device + global, reset at midnight).
-- **`BticinoCoordinator`** — a `DataUpdateCoordinator` holding all live tuning state.
+- **`X8000Coordinator`** — a `DataUpdateCoordinator` holding all live tuning state.
   It runs the adaptive poll loop *and* ingests webhook pushes, then fans both out to
   the entities.
 - **Entities** are `CoordinatorEntity` subclasses reading
@@ -287,9 +287,7 @@ config_flow ──► __init__.async_setup_entry
 - **Commands** (climate set temperature / mode / preset) call the cloud, then apply
   the change **optimistically** *and* merge it into `coordinator.data` via
   `apply_optimistic()`, so the UI sticks immediately; the free webhook and the next
-  scheduled poll reconcile it against the cloud. *(Before v1.5.2 the optimistic value
-  was overwritten by the immediate stale-cache re-parse, so a new setpoint appeared
-  to revert for seconds/minutes before taking effect.)*
+  scheduled poll reconcile it against the cloud.
 
 A fuller `file:line` map lives in [`ARCHITECTURE.md`](ARCHITECTURE.md).
 
@@ -333,8 +331,7 @@ fixed magic numbers: thresholds scale with the quota, active intervals scale wit
 | **< 8% quota** | Survival | `base × 4` | `base × 4 × M` | 60 / 240 min |
 | **< 2% quota** (min 5 calls) | Frozen | — scheduled polling paused — | | rely on webhooks |
 
-*(`base` = Update Interval, `M` = Passive Zone Multiplier. At the defaults — 15 min,
-quota 500, M=4 — the numbers are identical to previous releases.)*
+*(`base` = Update Interval, `M` = Passive Zone Multiplier.)*
 
 **Frozen** is the end-of-day safety floor: with almost no budget left, scheduled
 polls stop entirely and the integration relies on the free webhook push until the
@@ -460,7 +457,7 @@ answer "is my connection to Legrand about to need attention?" (see below).
 
 **API Call Count (Global)** — `sensor`, unit `calls`, state class `total_increasing`.
 The running total of API calls made today across every device. Resets to `0` at local
-midnight and is persisted to `.storage/bticino_x8000.api_usage`, so it survives
+midnight and is persisted to `.storage/btlegrand_x8000.api_usage`, so it survives
 restarts (a mid-day HA restart does **not** re-arm your whole quota). This is the raw
 `calls_used` that the budget net subtracts from **Daily API Quota**.
 > *Example.* Reading `264` at 18:00 against a 500 quota means 236 calls of headroom
@@ -481,9 +478,7 @@ zone wasn't due yet, or because the Frozen tier paused scheduled polling. It's t
 direct measure of how much work smart polling saved you; a rising number is good.
 Like *API Call Count*, it is **persisted across reloads and reset only at local
 midnight**, so the live value and the *skips/day* history chart (which reads
-long-term statistics via `change`) agree. *(Before v1.5.1 it was an in-memory
-counter that reset on every reload; `change/day` then summed each post-reload climb
-and over-reported — a live 77 could chart as 382 after several restarts.)*
+long-term statistics via `change`) agree.
 > *Example.* 3 passive zones on the default 4× each skip 3 of every 4 cycles, so over
 > a day this climbs by a few hundred. If it's stuck near `0`, either all zones are
 > active or **Smart Energy Saving** is off — you're paying full price.
@@ -630,7 +625,7 @@ logger:
 
 ### API count shows 0 after a restore
 
-The counter is persisted to `.storage/bticino_x8000.api_usage`. Restoring a backup or
+The counter is persisted to `.storage/btlegrand_x8000.api_usage`. Restoring a backup or
 deleting the storage folder resets it. The budget safety net adapts to the new
 (lower) count automatically and normalizes over the next 24 hours.
 

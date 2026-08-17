@@ -45,3 +45,7 @@ Desktop.ini
 # Logs
 *.log
 
+# Internal / not published publicly
+REVIEW.md
+update_btlegrand_x8000.sh
+

@@ -1,5 +1,5 @@
 {
-  "name": "Legrand/Bticino Smarther x8000 NOT Netatmo",
+  "name": "Legrand/Bticino Smarther X8000 (non-Netatmo)",
   "homeassistant": "2024.4.0",
   "render_readme": true
 }
