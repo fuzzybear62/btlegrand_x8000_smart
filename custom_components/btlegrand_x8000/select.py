@@ -13,7 +13,7 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.util import dt as dt_util
 
 from .const import DOMAIN, DEFAULT_MAX_TEMP, DEFAULT_MIN_TEMP
-from .coordinator import BticinoCoordinator
+from .coordinator import X8000Coordinator
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -24,7 +24,7 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up Bticino X8000 select entities."""
-    coordinator: BticinoCoordinator = hass.data[DOMAIN][config_entry.entry_id]
+    coordinator: X8000Coordinator = hass.data[DOMAIN][config_entry.entry_id]
     data = dict(config_entry.data)
     entities = []
 
@@ -39,14 +39,14 @@ async def async_setup_entry(
         # Program Select
         if programs:
             entities.append(
-                BticinoProgramSelect(
+                X8000ProgramSelect(
                     coordinator, plant_id, topology_id, thermostat_name, programs
                 )
             )
 
         # Boost Select
         entities.append(
-            BticinoBoostSelect(
+            X8000BoostSelect(
                 coordinator, plant_id, topology_id, thermostat_name, programs
             )
         )
@@ -54,12 +54,12 @@ async def async_setup_entry(
     async_add_entities(entities)
 
 
-class BticinoBaseSelect(CoordinatorEntity, SelectEntity):
+class X8000BaseSelect(CoordinatorEntity, SelectEntity):
     """Base class for select entities."""
 
     def __init__(
         self,
-        coordinator: BticinoCoordinator,
+        coordinator: X8000Coordinator,
         plant_id: str,
         topology_id: str,
         thermostat_name: str,
@@ -117,7 +117,7 @@ class BticinoBaseSelect(CoordinatorEntity, SelectEntity):
         pass
 
 
-class BticinoBoostSelect(BticinoBaseSelect):
+class X8000BoostSelect(X8000BaseSelect):
     """Select entity for boost control."""
 
     _attr_options = ["off", "30", "60", "90"]
@@ -272,7 +272,7 @@ class BticinoBoostSelect(BticinoBaseSelect):
         self.coordinator.notify_listeners_only()
 
 
-class BticinoProgramSelect(BticinoBaseSelect):
+class X8000ProgramSelect(X8000BaseSelect):
     """Select entity for thermostat program."""
 
     _attr_icon = "mdi:calendar-clock"

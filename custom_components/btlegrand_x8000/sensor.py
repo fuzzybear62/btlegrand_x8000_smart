@@ -25,7 +25,7 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.util import dt as dt_util
 
 from .const import DOMAIN
-from .coordinator import BticinoCoordinator
+from .coordinator import X8000Coordinator
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -57,7 +57,7 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up Bticino X8000 sensors."""
-    coordinator: BticinoCoordinator = hass.data[DOMAIN][config_entry.entry_id]
+    coordinator: X8000Coordinator = hass.data[DOMAIN][config_entry.entry_id]
 
     # Debug log to indicate the setup start
     _LOGGER.debug("Setting up %s sensor platform", DOMAIN)
@@ -81,12 +81,12 @@ async def async_setup_entry(
 
         # Create standard sensors
         sensors_classes = [
-            BticinoTemperatureSensor,
-            BticinoHumiditySensor,
-            BticinoTargetTemperatureSensor,
-            BticinoModeSensor,
-            BticinoStatusSensor,
-            BticinoBoostTimeRemainingSensor,
+            X8000TemperatureSensor,
+            X8000HumiditySensor,
+            X8000TargetTemperatureSensor,
+            X8000ModeSensor,
+            X8000LoadStateSensor,
+            X8000BoostTimeRemainingSensor,
         ]
 
         for sensor_class in sensors_classes:
@@ -98,26 +98,26 @@ async def async_setup_entry(
 
         # Create Program sensor (needs extra argument for program list)
         entities.append(
-            BticinoProgramSensor(
+            X8000ProgramSensor(
                 coordinator, plant_id, topology_id, thermostat_name, programs
             )
         )
 
         # Create per-thermostat API usage sensor for granular telemetry
         entities.append(
-            BticinoThermostatApiCountSensor(
+            X8000DeviceApiCountSensor(
                 coordinator, topology_id, thermostat_name
             )
         )
     
     # Singleton diagnostic sensors: total API count and skipped-poll count.
-    entities.append(BticinoApiCountSensor(coordinator))
-    entities.append(BticinoSkippedPollsSensor(coordinator))
+    entities.append(X8000GlobalApiCountSensor(coordinator))
+    entities.append(X8000SkippedPollsSensor(coordinator))
     # Smart-polling effectiveness diagnostics.
-    entities.append(BticinoPollingTierSensor(coordinator))
-    entities.append(BticinoProjectedCallsSensor(coordinator))
+    entities.append(X8000PollingTierSensor(coordinator))
+    entities.append(X8000ProjectedCallsSensor(coordinator))
     # Auth health: when the token expires / next proactive refresh is due.
-    entities.append(BticinoTokenExpirySensor(coordinator))
+    entities.append(X8000TokenExpirySensor(coordinator))
 
     _LOGGER.debug("Total entities to add: %d", len(entities))
 
@@ -125,12 +125,12 @@ async def async_setup_entry(
     async_add_entities(entities)
 
 
-class BticinoBaseSensor(CoordinatorEntity, SensorEntity):
+class X8000BaseSensor(CoordinatorEntity, SensorEntity):
     """Base class for Bticino sensors."""
 
     def __init__(
         self,
-        coordinator: BticinoCoordinator,
+        coordinator: X8000Coordinator,
         plant_id: str,
         topology_id: str,
         thermostat_name: str,
@@ -215,7 +215,7 @@ class BticinoBaseSensor(CoordinatorEntity, SensorEntity):
             return default
 
 
-class BticinoTemperatureSensor(BticinoBaseSensor):
+class X8000TemperatureSensor(X8000BaseSensor):
     """Sensor for current temperature."""
 
     _attr_device_class = SensorDeviceClass.TEMPERATURE
@@ -253,7 +253,7 @@ class BticinoTemperatureSensor(BticinoBaseSensor):
         }
 
 
-class BticinoHumiditySensor(BticinoBaseSensor):
+class X8000HumiditySensor(X8000BaseSensor):
     """Sensor for current humidity."""
 
     _attr_device_class = SensorDeviceClass.HUMIDITY
@@ -290,7 +290,7 @@ class BticinoHumiditySensor(BticinoBaseSensor):
         }
 
 
-class BticinoTargetTemperatureSensor(BticinoBaseSensor):
+class X8000TargetTemperatureSensor(X8000BaseSensor):
     """Sensor for target temperature."""
 
     _attr_device_class = SensorDeviceClass.TEMPERATURE
@@ -327,7 +327,7 @@ class BticinoTargetTemperatureSensor(BticinoBaseSensor):
         }
 
 
-class BticinoProgramSensor(BticinoBaseSensor):
+class X8000ProgramSensor(X8000BaseSensor):
     """Sensor for current program."""
 
     _attr_icon = "mdi:calendar-clock"
@@ -385,7 +385,7 @@ class BticinoProgramSensor(BticinoBaseSensor):
         }
 
 
-class BticinoModeSensor(BticinoBaseSensor):
+class X8000ModeSensor(X8000BaseSensor):
     """Sensor for current mode."""
 
     _attr_icon = "mdi:thermostat"
@@ -413,7 +413,7 @@ class BticinoModeSensor(BticinoBaseSensor):
         }
 
 
-class BticinoStatusSensor(BticinoBaseSensor):
+class X8000LoadStateSensor(X8000BaseSensor):
     """Sensor for current status (active/inactive)."""
 
     _attr_icon = "mdi:power"
@@ -440,7 +440,7 @@ class BticinoStatusSensor(BticinoBaseSensor):
         }
 
 
-class BticinoBoostTimeRemainingSensor(BticinoBaseSensor):
+class X8000BoostTimeRemainingSensor(X8000BaseSensor):
     """Sensor for boost time remaining."""
 
     _attr_device_class = SensorDeviceClass.DURATION
@@ -511,7 +511,7 @@ class BticinoBoostTimeRemainingSensor(BticinoBaseSensor):
 
 # --- SPECIAL DIAGNOSTIC SENSOR ---
 
-class BticinoApiCountSensor(CoordinatorEntity, SensorEntity):
+class X8000GlobalApiCountSensor(CoordinatorEntity, SensorEntity):
     """
     Diagnostic sensor for API usage.
     """
@@ -524,7 +524,7 @@ class BticinoApiCountSensor(CoordinatorEntity, SensorEntity):
     _attr_has_entity_name = True
     _attr_force_update = True 
 
-    def __init__(self, coordinator: BticinoCoordinator):
+    def __init__(self, coordinator: X8000Coordinator):
         super().__init__(coordinator)
         self._attr_unique_id = f"{DOMAIN}_api_count_{coordinator.entry.entry_id}"
 
@@ -573,7 +573,7 @@ class BticinoApiCountSensor(CoordinatorEntity, SensorEntity):
         self._async_handle_any_update()
 
 
-class BticinoSkippedPollsSensor(CoordinatorEntity, SensorEntity):
+class X8000SkippedPollsSensor(CoordinatorEntity, SensorEntity):
     """
     Diagnostic sensor for Smart Polling skipped calls.
     """
@@ -586,7 +586,7 @@ class BticinoSkippedPollsSensor(CoordinatorEntity, SensorEntity):
     _attr_has_entity_name = True
     _attr_force_update = True
 
-    def __init__(self, coordinator: BticinoCoordinator):
+    def __init__(self, coordinator: X8000Coordinator):
         super().__init__(coordinator)
         self._attr_unique_id = f"{DOMAIN}_skipped_polls_{coordinator.entry.entry_id}"
 
@@ -632,7 +632,7 @@ class BticinoSkippedPollsSensor(CoordinatorEntity, SensorEntity):
         self._async_handle_any_update()
 
 
-class BticinoTokenExpirySensor(CoordinatorEntity, SensorEntity):
+class X8000TokenExpirySensor(CoordinatorEntity, SensorEntity):
     """Diagnostic: absolute expiry of the current OAuth access token.
 
     Exposes the instant the proactive-refresh logic watches: the token is
@@ -648,7 +648,7 @@ class BticinoTokenExpirySensor(CoordinatorEntity, SensorEntity):
     _attr_device_class = SensorDeviceClass.TIMESTAMP
     _attr_has_entity_name = True
 
-    def __init__(self, coordinator: BticinoCoordinator):
+    def __init__(self, coordinator: X8000Coordinator):
         super().__init__(coordinator)
         self._attr_unique_id = f"{DOMAIN}_token_expiry_{coordinator.entry.entry_id}"
 
@@ -703,7 +703,7 @@ class BticinoTokenExpirySensor(CoordinatorEntity, SensorEntity):
         self._async_handle_any_update()
 
 
-class BticinoPollingTierSensor(CoordinatorEntity, SensorEntity):
+class X8000PollingTierSensor(CoordinatorEntity, SensorEntity):
     """
     Diagnostic sensor exposing the current smart-polling throttling tier.
 
@@ -719,7 +719,7 @@ class BticinoPollingTierSensor(CoordinatorEntity, SensorEntity):
     _attr_options = ["disabled", "normal", "economy", "survival", "frozen"]
     _attr_has_entity_name = True
 
-    def __init__(self, coordinator: BticinoCoordinator):
+    def __init__(self, coordinator: X8000Coordinator):
         super().__init__(coordinator)
         self._attr_unique_id = f"{DOMAIN}_polling_tier_{coordinator.entry.entry_id}"
 
@@ -775,7 +775,7 @@ class BticinoPollingTierSensor(CoordinatorEntity, SensorEntity):
         self._async_handle_any_update()
 
 
-class BticinoProjectedCallsSensor(CoordinatorEntity, SensorEntity):
+class X8000ProjectedCallsSensor(CoordinatorEntity, SensorEntity):
     """
     Diagnostic sensor projecting total API calls by midnight.
 
@@ -791,7 +791,7 @@ class BticinoProjectedCallsSensor(CoordinatorEntity, SensorEntity):
     _attr_native_unit_of_measurement = "calls"
     _attr_has_entity_name = True
 
-    def __init__(self, coordinator: BticinoCoordinator):
+    def __init__(self, coordinator: X8000Coordinator):
         super().__init__(coordinator)
         self._attr_unique_id = f"{DOMAIN}_projected_calls_{coordinator.entry.entry_id}"
 
@@ -844,7 +844,7 @@ class BticinoProjectedCallsSensor(CoordinatorEntity, SensorEntity):
         self._async_handle_any_update()
 
 
-class BticinoThermostatApiCountSensor(CoordinatorEntity, SensorEntity):
+class X8000DeviceApiCountSensor(CoordinatorEntity, SensorEntity):
     """
     Diagnostic sensor for API usage specific to a thermostat.
     """
@@ -854,11 +854,11 @@ class BticinoThermostatApiCountSensor(CoordinatorEntity, SensorEntity):
     _attr_native_unit_of_measurement = "calls"
     _attr_icon = "mdi:chart-bar"
 
-    def __init__(self, coordinator: BticinoCoordinator, topology_id: str, thermostat_name: str):
+    def __init__(self, coordinator: X8000Coordinator, topology_id: str, thermostat_name: str):
         super().__init__(coordinator)
         self._topology_id = topology_id
         self._thermostat_name = thermostat_name
-        # Unique ID: bticino_api_count_deviceid
+        # Unique ID: api_count_deviceid
         self._attr_unique_id = f"{DOMAIN}_api_count_{topology_id}"
         self._attr_name = "API Usage"
 

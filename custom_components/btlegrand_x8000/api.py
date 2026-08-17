@@ -62,13 +62,13 @@ STORAGE_VERSION = 1
 SAVE_DELAY = 60  # Seconds to wait before writing to disk (Debounce)
 
 # --- Custom Exceptions Definition ---
-class BticinoApiError(Exception):
+class X8000ApiError(Exception):
     """Base class for all API errors."""
 
-class RateLimitError(BticinoApiError):
+class RateLimitError(X8000ApiError):
     """Raised when the API returns a 429 error."""
 
-class AuthError(BticinoApiError):
+class AuthError(X8000ApiError):
     """Raised when authentication fails or token cannot be refreshed."""
 
 
@@ -101,7 +101,7 @@ class _RefreshResult(Enum):
     BROKEN = "broken"
 
 
-class BticinoX8000Api:
+class X8000Api:
     """Legrand API class with Rate Limiting, Backoff, Shared Session and Persistence."""
 
     def __init__(self, hass: HomeAssistant, data: dict[str, Any]) -> None:
@@ -383,12 +383,12 @@ class BticinoX8000Api:
                                 continue
                             else:
                                 self.api_other_fail_count += 1
-                                raise BticinoApiError(f"Persistent Server Error {status_code} after {max_attempts} attempts")
+                                raise X8000ApiError(f"Persistent Server Error {status_code} after {max_attempts} attempts")
 
                         # CASE 5: CLIENT ERRORS (4xx)
                         _LOGGER.error("HTTP Client Error %s: %s", status_code, content)
                         self.api_other_fail_count += 1
-                        raise BticinoApiError(f"HTTP Client Error {status_code}: {content}")
+                        raise X8000ApiError(f"HTTP Client Error {status_code}: {content}")
 
                 except aiohttp.ClientError as e:
                     _LOGGER.error("Network error during request to %s: %s", url, e)
@@ -398,16 +398,16 @@ class BticinoX8000Api:
                         current_delay *= 2
                     else:
                         self.api_other_fail_count += 1
-                        raise BticinoApiError(f"Network error: {e}")
+                        raise X8000ApiError(f"Network error: {e}")
                 except Exception as e:
-                    if isinstance(e, BticinoApiError):
+                    if isinstance(e, X8000ApiError):
                         raise e
                     _LOGGER.exception("Unexpected error during request to %s", url)
                     self.api_other_fail_count += 1
                     raise e
             
             self.api_other_fail_count += 1
-            raise BticinoApiError("Request failed - Unknown loop exit")
+            raise X8000ApiError("Request failed - Unknown loop exit")
 
     async def _ensure_token_fresh(self) -> None:
         """Proactively refresh the access token if it is within the expiry margin.

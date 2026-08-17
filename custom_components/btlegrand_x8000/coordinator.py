@@ -14,12 +14,12 @@ from homeassistant.components import persistent_notification
 from homeassistant.util import dt as dt_util  # Added for diagnostic timestamps
 
 from .api import (
-    BticinoX8000Api,
+    X8000Api,
     RateLimitError,
     AuthError,
     AuthBrokenError,
     AuthRetryableError,
-    BticinoApiError,
+    X8000ApiError,
     _RefreshResult,
 )
 from .const import (
@@ -59,13 +59,13 @@ _LOGGER = logging.getLogger(__name__)
 # If a new error occurs, the existing notification is updated/overwritten.
 NOTIFICATION_ID = "bticino_rate_limit_alert"
 
-class BticinoCoordinator(DataUpdateCoordinator):
+class X8000Coordinator(DataUpdateCoordinator):
     """Class to manage fetching Bticino data."""
 
     def __init__(
         self,
         hass: HomeAssistant,
-        api: BticinoX8000Api,
+        api: X8000Api,
         entry: ConfigEntry,
     ) -> None:
         """Initialize the coordinator."""
@@ -389,7 +389,7 @@ class BticinoCoordinator(DataUpdateCoordinator):
                     self.api.auth_broken = True
                     raise ConfigEntryAuthFailed(f"Auth Error: {err}")
 
-                except BticinoApiError as err:
+                except X8000ApiError as err:
                     _LOGGER.error("API Error on %s: %s", topology_id, err)
                     # For generic API errors (e.g. 500, timeout), we log but continue
                     # to the next device, as it might be a temporary single-device glitch.
@@ -414,7 +414,7 @@ class BticinoCoordinator(DataUpdateCoordinator):
                     _LOGGER.exception("Unexpected exception updating %s", topology_id)
 
                 # PRESERVE LAST-KNOWN STATE: if this device produced no fresh data
-                # this cycle (a per-device BticinoApiError or an unexpected
+                # this cycle (a per-device X8000ApiError or an unexpected
                 # exception that logged-and-continued), fall back to the previous
                 # value so the entity keeps its last reading instead of flipping to
                 # 'Unavailable' over a transient single-device glitch. The skip and

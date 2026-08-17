@@ -35,7 +35,7 @@ from .const import (
     MIN_PASSIVE_MULTIPLIER,
     MAX_PASSIVE_MULTIPLIER,
 )
-from .coordinator import BticinoCoordinator
+from .coordinator import X8000Coordinator
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -45,28 +45,28 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up Bticino X8000 number platform."""
-    coordinator: BticinoCoordinator = hass.data[DOMAIN][config_entry.entry_id]
+    coordinator: X8000Coordinator = hass.data[DOMAIN][config_entry.entry_id]
 
     # Instantiate the configuration entities
     entities = [
-        BticinoUpdateIntervalNumber(coordinator),
-        BticinoCoolDownNumber(coordinator),
-        BticinoDebounceNumber(coordinator),
-        BticinoDailyQuotaNumber(coordinator),
-        BticinoPassiveMultiplierNumber(coordinator),
+        X8000UpdateIntervalNumber(coordinator),
+        X8000CoolDownNumber(coordinator),
+        X8000DebounceNumber(coordinator),
+        X8000DailyQuotaNumber(coordinator),
+        X8000PassiveMultiplierNumber(coordinator),
     ]
     
     async_add_entities(entities)
 
 
-class BticinoBaseNumber(CoordinatorEntity, NumberEntity):
+class X8000BaseNumber(CoordinatorEntity, NumberEntity):
     """Base class for Bticino configuration numbers."""
 
     _attr_has_entity_name = True
     _attr_entity_category = EntityCategory.CONFIG
     _attr_mode = NumberMode.BOX  # BOX is better for precise numerical input than a slider
 
-    def __init__(self, coordinator: BticinoCoordinator) -> None:
+    def __init__(self, coordinator: X8000Coordinator) -> None:
         """Initialize the number entity."""
         super().__init__(coordinator)
         # Unique ID is generated using the Entry ID to be globally unique
@@ -74,7 +74,7 @@ class BticinoBaseNumber(CoordinatorEntity, NumberEntity):
 
     @property
     def device_info(self) -> DeviceInfo:
-        """Link this entity to the 'Bticino Cloud Service' virtual device."""
+        """Link this entity to the 'BtLegrand Service' virtual device."""
         return DeviceInfo(
             identifiers={(DOMAIN, self.coordinator.entry.entry_id)},
             name="BtLegrand Service",
@@ -144,7 +144,7 @@ class BticinoBaseNumber(CoordinatorEntity, NumberEntity):
             await self.coordinator.async_request_refresh()
 
 
-class BticinoUpdateIntervalNumber(BticinoBaseNumber):
+class X8000UpdateIntervalNumber(X8000BaseNumber):
     """
     Configuration entity to adjust the Normal Polling Interval.
     Default: 15 minutes.
@@ -191,7 +191,7 @@ class BticinoUpdateIntervalNumber(BticinoBaseNumber):
         await self._update_config_entry(CONF_UPDATE_INTERVAL, new_minutes, force_refresh=False)
 
 
-class BticinoCoolDownNumber(BticinoBaseNumber):
+class X8000CoolDownNumber(X8000BaseNumber):
     """
     Configuration entity to adjust the Cool Down Interval (Ban Wait Time).
     Default: 60 minutes.
@@ -234,7 +234,7 @@ class BticinoCoolDownNumber(BticinoBaseNumber):
         await self._update_config_entry(CONF_COOL_DOWN, new_minutes, force_refresh=True)
 
 
-class BticinoDebounceNumber(BticinoBaseNumber):
+class X8000DebounceNumber(X8000BaseNumber):
     """
     Configuration entity to adjust the Webhook Debounce time.
     Default: 1.0 second.
@@ -270,7 +270,7 @@ class BticinoDebounceNumber(BticinoBaseNumber):
         await self._update_config_entry(CONF_DEBOUNCE, value, force_refresh=False)
 
 
-class BticinoDailyQuotaNumber(BticinoBaseNumber):
+class X8000DailyQuotaNumber(X8000BaseNumber):
     """
     Configuration entity to adjust the Daily API Quota (BTLG).
     Range: 100 - 10000 calls/day.
@@ -304,7 +304,7 @@ class BticinoDailyQuotaNumber(BticinoBaseNumber):
         await self._update_config_entry(CONF_BTLG_DAILY_QUOTA, new_quota, force_refresh=False)
 
 
-class BticinoPassiveMultiplierNumber(BticinoBaseNumber):
+class X8000PassiveMultiplierNumber(X8000BaseNumber):
     """
     Configuration entity for the Passive Zone Multiplier.
 

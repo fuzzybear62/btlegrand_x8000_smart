@@ -15,7 +15,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import DOMAIN
-from .coordinator import BticinoCoordinator
+from .coordinator import X8000Coordinator
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -26,11 +26,11 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up the auth-health binary sensor."""
-    coordinator: BticinoCoordinator = hass.data[DOMAIN][config_entry.entry_id]
-    async_add_entities([BticinoAuthProblemBinarySensor(coordinator)])
+    coordinator: X8000Coordinator = hass.data[DOMAIN][config_entry.entry_id]
+    async_add_entities([X8000AuthProblemBinarySensor(coordinator)])
 
 
-class BticinoAuthProblemBinarySensor(CoordinatorEntity, BinarySensorEntity):
+class X8000AuthProblemBinarySensor(CoordinatorEntity, BinarySensorEntity):
     """Diagnostic: ON when authentication is permanently broken (reauth needed).
 
     This mirrors the flag the coordinator acts on: once ``api.auth_broken`` is
@@ -48,7 +48,7 @@ class BticinoAuthProblemBinarySensor(CoordinatorEntity, BinarySensorEntity):
     _attr_device_class = BinarySensorDeviceClass.PROBLEM
     _attr_has_entity_name = True
 
-    def __init__(self, coordinator: BticinoCoordinator) -> None:
+    def __init__(self, coordinator: X8000Coordinator) -> None:
         super().__init__(coordinator)
         self._attr_unique_id = f"{DOMAIN}_auth_problem_{coordinator.entry.entry_id}"
 

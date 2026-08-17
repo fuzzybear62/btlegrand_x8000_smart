@@ -12,7 +12,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import DOMAIN
-from .coordinator import BticinoCoordinator
+from .coordinator import X8000Coordinator
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -23,17 +23,17 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up Bticino X8000 button platform."""
-    coordinator: BticinoCoordinator = hass.data[DOMAIN][config_entry.entry_id]
+    coordinator: X8000Coordinator = hass.data[DOMAIN][config_entry.entry_id]
 
     # Instantiate the button entity for manual troubleshooting
     entities = [
-        BticinoForceTokenButton(coordinator),
+        X8000ForceTokenButton(coordinator),
     ]
 
     async_add_entities(entities)
 
 
-class BticinoForceTokenButton(CoordinatorEntity, ButtonEntity):
+class X8000ForceTokenButton(CoordinatorEntity, ButtonEntity):
     """
     Button entity to force a manual Token Refresh.
     
@@ -48,7 +48,7 @@ class BticinoForceTokenButton(CoordinatorEntity, ButtonEntity):
     _attr_entity_category = EntityCategory.CONFIG
     _attr_device_class = ButtonDeviceClass.RESTART  # 'RESTART' conveys the idea of resetting a connection
 
-    def __init__(self, coordinator: BticinoCoordinator) -> None:
+    def __init__(self, coordinator: X8000Coordinator) -> None:
         """Initialize the button entity."""
         super().__init__(coordinator)
         # Unique ID generated from Entry ID to be globally unique
@@ -56,7 +56,7 @@ class BticinoForceTokenButton(CoordinatorEntity, ButtonEntity):
 
     @property
     def device_info(self) -> DeviceInfo:
-        """Link this entity to the 'Bticino Cloud Service' virtual device."""
+        """Link this entity to the 'BtLegrand Service' virtual device."""
         return DeviceInfo(
             identifiers={(DOMAIN, self.coordinator.entry.entry_id)},
             name="BtLegrand Service",

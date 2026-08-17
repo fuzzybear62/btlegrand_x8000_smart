@@ -12,7 +12,7 @@ import voluptuous as vol
 from homeassistant import config_entries
 from homeassistant.helpers import selector
 
-from .api import BticinoX8000Api
+from .api import X8000Api
 from .auth import exchange_code_for_tokens
 from .const import (
     AUTH_URL_ENDPOINT,
@@ -30,7 +30,7 @@ _LOGGER = logging.getLogger(__name__)
 # Timeout for API calls during config flow (seconds)
 API_TIMEOUT = 20
 
-class BticinoX8000ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
+class X8000ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Bticino ConfigFlow."""
 
     def __init__(self) -> None:
@@ -38,7 +38,7 @@ class BticinoX8000ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self.data: dict[str, Any] = {}
         # Map: "Display Name (Plant ID)" -> Thermostat Data Object
         self._selection_map: dict[str, Any] = {}
-        self.bticino_api: BticinoX8000Api | None = None
+        self.api: X8000Api | None = None
         # Set only while re-authenticating an existing entry (credentials
         # reconfigure). When set, the OAuth step finalizes by updating this
         # entry in place instead of creating a new one.
@@ -285,7 +285,7 @@ class BticinoX8000ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         if user_input is None:
             # Discover the live topology across every plant on the account.
-            self.bticino_api = api
+            self.api = api
             self._selection_map = {}
             try:
                 async with asyncio.timeout(API_TIMEOUT):
@@ -429,7 +429,7 @@ class BticinoX8000ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         )
 
     async def _async_delete_plant_subscriptions(
-        self, api: BticinoX8000Api, plant_ids: set[str], external_url: str
+        self, api: X8000Api, plant_ids: set[str], external_url: str
     ) -> None:
         """Best-effort delete of our C2C subscriptions for the given plants.
 
@@ -673,15 +673,15 @@ class BticinoX8000ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 self.data["access_token_expires_on"] = access_token_expires_on
 
                 # Init API
-                self.bticino_api = BticinoX8000Api(self.hass, self.data)
+                self.api = X8000Api(self.hass, self.data)
 
-                if not await self.bticino_api.check_api_endpoint_health():
+                if not await self.api.check_api_endpoint_health():
                     return self.async_abort(reason="Auth Failed! API endpoint unreachable.")
 
                 # Fetch plants with Timeout & Robust Parsing
                 try:
                     async with asyncio.timeout(API_TIMEOUT):
-                        plants_data = await self.bticino_api.get_plants()
+                        plants_data = await self.api.get_plants()
                 except asyncio.TimeoutError:
                     return self.async_abort(reason="Timeout retrieving plants.")
                 
@@ -744,7 +744,7 @@ class BticinoX8000ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     try:
                         # Timeout for Topology
                         async with asyncio.timeout(API_TIMEOUT):
-                            topologies = await self.bticino_api.get_topology(plant_id)
+                            topologies = await self.api.get_topology(plant_id)
                         
                         if topologies.get("status_code") != 200:
                             continue
@@ -839,11 +839,11 @@ class BticinoX8000ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self, plant_id: str, topology_id: str
     ) -> list[dict[str, Any]] | None:
         """Retrieve the program list with timeout protection."""
-        if self.bticino_api is not None:
+        if self.api is not None:
             try:
                 # 5 second timeout for programs is sufficient, don't block flow too long
                 async with asyncio.timeout(5):
-                    programs = await self.bticino_api.get_chronothermostat_programlist(
+                    programs = await self.api.get_chronothermostat_programlist(
                         plant_id, topology_id
                     )
             except asyncio.TimeoutError:

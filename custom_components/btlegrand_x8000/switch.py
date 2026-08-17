@@ -18,7 +18,7 @@ from .const import (
     CONF_NOTIFY_ERRORS,
     CONF_SMART_POLLING,
 )
-from .coordinator import BticinoCoordinator
+from .coordinator import X8000Coordinator
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -29,18 +29,18 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up Bticino X8000 switch platform."""
-    coordinator: BticinoCoordinator = hass.data[DOMAIN][config_entry.entry_id]
+    coordinator: X8000Coordinator = hass.data[DOMAIN][config_entry.entry_id]
 
     # Instantiate the switch entity for controlling error notifications
     entities = [
-        BticinoNotifyErrorsSwitch(coordinator),
-        BticinoSmartPollingSwitch(coordinator),
+        X8000NotifyErrorsSwitch(coordinator),
+        X8000SmartPollingSwitch(coordinator),
     ]
 
     async_add_entities(entities)
 
 
-class BticinoNotifyErrorsSwitch(CoordinatorEntity, SwitchEntity):
+class X8000NotifyErrorsSwitch(CoordinatorEntity, SwitchEntity):
     """
     Configuration switch to enable/disable persistent error notifications.
     
@@ -53,7 +53,7 @@ class BticinoNotifyErrorsSwitch(CoordinatorEntity, SwitchEntity):
     _attr_entity_category = EntityCategory.CONFIG
     _attr_device_class = SwitchDeviceClass.SWITCH
 
-    def __init__(self, coordinator: BticinoCoordinator) -> None:
+    def __init__(self, coordinator: X8000Coordinator) -> None:
         """Initialize the switch entity."""
         super().__init__(coordinator)
         # Unique ID generated from Entry ID to be globally unique
@@ -64,7 +64,7 @@ class BticinoNotifyErrorsSwitch(CoordinatorEntity, SwitchEntity):
 
     @property
     def device_info(self) -> DeviceInfo:
-        """Link this entity to the 'Bticino Cloud Service' virtual device."""
+        """Link this entity to the 'BtLegrand Service' virtual device."""
         return DeviceInfo(
             identifiers={(DOMAIN, self.coordinator.entry.entry_id)},
             name="BtLegrand Service",
@@ -142,7 +142,7 @@ class BticinoNotifyErrorsSwitch(CoordinatorEntity, SwitchEntity):
         )
 
 
-class BticinoSmartPollingSwitch(CoordinatorEntity, SwitchEntity):
+class X8000SmartPollingSwitch(CoordinatorEntity, SwitchEntity):
     """
     Configuration switch to enable/disable Smart Energy Saving (Optimized Polling).
     
@@ -155,7 +155,7 @@ class BticinoSmartPollingSwitch(CoordinatorEntity, SwitchEntity):
     _attr_entity_category = EntityCategory.CONFIG
     _attr_device_class = SwitchDeviceClass.SWITCH
 
-    def __init__(self, coordinator: BticinoCoordinator) -> None:
+    def __init__(self, coordinator: X8000Coordinator) -> None:
         """Initialize the switch entity."""
         super().__init__(coordinator)
         self._attr_unique_id = f"{DOMAIN}_smart_polling_{coordinator.entry.entry_id}"
@@ -163,7 +163,7 @@ class BticinoSmartPollingSwitch(CoordinatorEntity, SwitchEntity):
 
     @property
     def device_info(self) -> DeviceInfo:
-        """Link this entity to the 'Bticino Cloud Service' virtual device."""
+        """Link this entity to the 'BtLegrand Service' virtual device."""
         return DeviceInfo(
             identifiers={(DOMAIN, self.coordinator.entry.entry_id)},
             name="BtLegrand Service",

@@ -9,10 +9,10 @@ from homeassistant.helpers import device_registry as dr
 # Import the correct exception that blocks the restart loop
 from homeassistant.exceptions import ConfigEntryNotReady
 
-from .api import BticinoX8000Api
+from .api import X8000Api
 from .const import DOMAIN, WEBHOOK_ID
-from .coordinator import BticinoCoordinator
-from .webhook import SmartherWebhookHandler
+from .coordinator import X8000Coordinator
+from .webhook import X8000WebhookHandler
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -33,10 +33,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     _LOGGER.info("Setting up Legrand/Bticino Smarther integration")
 
     # 1. Initialize API
-    api = BticinoX8000Api(hass, dict(entry.data))
+    api = X8000Api(hass, dict(entry.data))
 
     # 2. Initialize Coordinator
-    coordinator = BticinoCoordinator(hass, api, entry)
+    coordinator = X8000Coordinator(hass, api, entry)
 
     # 2b. Load persisted API usage stats BEFORE the first refresh.
     # Doing this synchronously (awaited) prevents a startup race where the
@@ -67,7 +67,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     # 5. Register Webhook Handler (Home Assistant Side)
     # This is local, so we can do it even if banned.
-    webhook_handler = SmartherWebhookHandler(hass, WEBHOOK_ID)
+    webhook_handler = X8000WebhookHandler(hass, WEBHOOK_ID)
     await webhook_handler.async_register_webhook()
 
     # 6. Subscribe to C2C Notifications (Legrand Side)
@@ -152,7 +152,7 @@ async def async_remove_config_entry_device(
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload a config entry."""
-    webhook_handler = SmartherWebhookHandler(hass, WEBHOOK_ID)
+    webhook_handler = X8000WebhookHandler(hass, WEBHOOK_ID)
     await webhook_handler.async_remove_webhook()
     
     if unload_ok := await hass.config_entries.async_unload_platforms(entry, PLATFORMS):

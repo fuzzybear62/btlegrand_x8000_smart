@@ -17,7 +17,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import DOMAIN, DEFAULT_MAX_TEMP, DEFAULT_MIN_TEMP
-from .coordinator import BticinoCoordinator
+from .coordinator import X8000Coordinator
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -27,7 +27,7 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up Bticino X8000 climate entities."""
-    coordinator: BticinoCoordinator = hass.data[DOMAIN][config_entry.entry_id]
+    coordinator: X8000Coordinator = hass.data[DOMAIN][config_entry.entry_id]
     
     entities = []
     data = config_entry.data
@@ -39,7 +39,7 @@ async def async_setup_entry(
         thermo_data = list(plant_data.values())[0]
         
         entities.append(
-            BticinoX8000Climate(
+            X8000Climate(
                 coordinator=coordinator,
                 plant_id=plant_id,
                 thermo_data=thermo_data,
@@ -49,7 +49,7 @@ async def async_setup_entry(
     async_add_entities(entities)
 
 
-class BticinoX8000Climate(CoordinatorEntity, ClimateEntity):
+class X8000Climate(CoordinatorEntity, ClimateEntity):
     """Bticino X8000 Climate Entity using Coordinator."""
 
     _attr_supported_features = (
@@ -68,7 +68,7 @@ class BticinoX8000Climate(CoordinatorEntity, ClimateEntity):
 
     def __init__(
         self,
-        coordinator: BticinoCoordinator,
+        coordinator: X8000Coordinator,
         plant_id: str,
         thermo_data: dict[str, Any],
     ) -> None:

@@ -22,7 +22,7 @@ _LOGGER = logging.getLogger(__name__)
 _EXPECTED_KEYS = ("chronothermostats", "data", "plant")
 
 
-class SmartherWebhookHandler:
+class X8000WebhookHandler:
     """Registers, handles and tears down the Smarther C2C webhook."""
 
     def __init__(self, hass: HomeAssistant, webhook_id: str) -> None:
