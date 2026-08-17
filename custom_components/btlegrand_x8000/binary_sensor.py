@@ -73,13 +73,6 @@ class X8000AuthProblemBinarySensor(CoordinatorEntity, BinarySensorEntity):
         """Return True when auth is permanently broken."""
         return bool(getattr(self.coordinator.api, "auth_broken", False))
 
-    async def async_added_to_hass(self) -> None:
-        """Register for ALL coordinator updates."""
-        await super().async_added_to_hass()
-        self.async_on_remove(
-            self.coordinator.async_add_listener(self._async_handle_any_update)
-        )
-
     @callback
     def _async_handle_any_update(self) -> None:
         """Called on EVERY coordinator update attempt (success or fail)."""

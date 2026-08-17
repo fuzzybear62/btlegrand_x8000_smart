@@ -248,9 +248,6 @@ class X8000DebounceNumber(X8000BaseNumber):
     _attr_native_min_value = MIN_DEBOUNCE
     _attr_native_max_value = MAX_DEBOUNCE
     _attr_native_step = 0.1  # Allow decimal precision
-    
-    # Force display precision to 1 decimal place (e.g. "1.0")
-    _attr_native_precision = 1
 
     @property
     def native_value(self) -> float:

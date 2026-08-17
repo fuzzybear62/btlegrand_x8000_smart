@@ -550,14 +550,6 @@ class X8000GlobalApiCountSensor(CoordinatorEntity, SensorEntity):
         # Direct read from API object singleton
         return self.coordinator.api.call_count
 
-    async def async_added_to_hass(self) -> None:
-        """Register for ALL coordinator updates."""
-        await super().async_added_to_hass()
-        # Listen for the coordinator's update event directly
-        self.async_on_remove(
-            self.coordinator.async_add_listener(self._async_handle_any_update)
-        )
-
     @callback
     def _async_handle_any_update(self) -> None:
         """Called on EVERY coordinator update attempt (success or fail)."""
@@ -610,13 +602,6 @@ class X8000SkippedPollsSensor(CoordinatorEntity, SensorEntity):
     def native_value(self) -> int:
         """Return the total number of calls skipped by Smart Polling."""
         return getattr(self.coordinator, "skipped_count", 0)
-
-    async def async_added_to_hass(self) -> None:
-        """Register for ALL coordinator updates."""
-        await super().async_added_to_hass()
-        self.async_on_remove(
-            self.coordinator.async_add_listener(self._async_handle_any_update)
-        )
 
     @callback
     def _async_handle_any_update(self) -> None:
@@ -681,13 +666,6 @@ class X8000TokenExpirySensor(CoordinatorEntity, SensorEntity):
                 self.coordinator.api, "proactive_refresh_count", 0
             ),
         }
-
-    async def async_added_to_hass(self) -> None:
-        """Register for ALL coordinator updates."""
-        await super().async_added_to_hass()
-        self.async_on_remove(
-            self.coordinator.async_add_listener(self._async_handle_any_update)
-        )
 
     @callback
     def _async_handle_any_update(self) -> None:
@@ -756,13 +734,6 @@ class X8000PollingTierSensor(CoordinatorEntity, SensorEntity):
             "remaining_calls": self.coordinator.daily_api_quota - self.coordinator.api.call_count,
         }
 
-    async def async_added_to_hass(self) -> None:
-        """Register for ALL coordinator updates."""
-        await super().async_added_to_hass()
-        self.async_on_remove(
-            self.coordinator.async_add_listener(self._async_handle_any_update)
-        )
-
     @callback
     def _async_handle_any_update(self) -> None:
         try:
@@ -824,13 +795,6 @@ class X8000ProjectedCallsSensor(CoordinatorEntity, SensorEntity):
             "daily_quota": quota,
             "over_budget": self.coordinator.projected_daily_calls > quota,
         }
-
-    async def async_added_to_hass(self) -> None:
-        """Register for ALL coordinator updates."""
-        await super().async_added_to_hass()
-        self.async_on_remove(
-            self.coordinator.async_add_listener(self._async_handle_any_update)
-        )
 
     @callback
     def _async_handle_any_update(self) -> None:

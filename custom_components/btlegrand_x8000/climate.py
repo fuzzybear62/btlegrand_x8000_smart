@@ -62,7 +62,7 @@ class X8000Climate(CoordinatorEntity, ClimateEntity):
     _attr_hvac_modes = [HVACMode.AUTO, HVACMode.HEAT, HVACMode.COOL, HVACMode.OFF]
     _attr_min_temp = DEFAULT_MIN_TEMP
     _attr_max_temp = DEFAULT_MAX_TEMP
-    _attr_target_temperature_step = 0.1
+    _attr_target_temperature_step = 0.5
     _attr_has_entity_name = True
     _attr_name = None # Use device name
 

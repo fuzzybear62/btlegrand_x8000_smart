@@ -262,6 +262,13 @@ class X8000BoostSelect(X8000BaseSelect):
             await self.coordinator.api.set_chronothermostat_status(
                 self._plant_id, self._topology_id, payload
             )
+
+            # Patch the coordinator cache so the re-parse triggered by
+            # notify_listeners_only() (below) reads the NEW state, not the stale
+            # pre-command one — otherwise it would clobber this optimistic option
+            # and the UI would snap back until the next poll/webhook. Mirrors
+            # climate.py.
+            self.coordinator.apply_optimistic(self._topology_id, payload)
         except Exception as e:
             _LOGGER.error("Failed to set boost option: %s", e)
             # Revert on Failure
@@ -350,6 +357,12 @@ class X8000ProgramSelect(X8000BaseSelect):
             await self.coordinator.api.set_chronothermostat_status(
                 self._plant_id, self._topology_id, payload
             )
+
+            # Patch the coordinator cache so the re-parse triggered by
+            # notify_listeners_only() (below) reads the NEW program, not the stale
+            # pre-command one — otherwise it would clobber this optimistic option.
+            # Mirrors climate.py.
+            self.coordinator.apply_optimistic(self._topology_id, payload)
         except Exception as e:
             _LOGGER.error("Failed to set program: %s", e)
             # Revert on Failure
