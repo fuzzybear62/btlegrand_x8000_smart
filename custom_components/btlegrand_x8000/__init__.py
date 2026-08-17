@@ -8,6 +8,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers import device_registry as dr
 # Import the correct exception that blocks the restart loop
 from homeassistant.exceptions import ConfigEntryNotReady
+from homeassistant.loader import async_get_integration
 
 from .api import X8000Api
 from .const import DOMAIN, WEBHOOK_ID
@@ -30,7 +31,11 @@ PLATFORMS: list[Platform] = [
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Bticino X8000 from a config entry."""
     
-    _LOGGER.info("Setting up Legrand/Bticino Smarther integration")
+    integration = await async_get_integration(hass, DOMAIN)
+    _LOGGER.info(
+        "Setting up Legrand/Bticino Smarther integration (version %s)",
+        integration.version,
+    )
 
     # 1. Initialize API
     api = X8000Api(hass, dict(entry.data))
