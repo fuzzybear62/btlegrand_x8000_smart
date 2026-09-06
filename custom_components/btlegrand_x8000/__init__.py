@@ -6,6 +6,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import device_registry as dr
+from homeassistant.helpers.event import async_call_later
 # Import the correct exception that blocks the restart loop
 from homeassistant.exceptions import ConfigEntryNotReady
 from homeassistant.loader import async_get_integration
@@ -26,6 +27,89 @@ PLATFORMS: list[Platform] = [
     Platform.BUTTON,
     Platform.BINARY_SENSOR,
 ]
+
+# Backoff schedule (seconds) for retrying C2C subscription when the Legrand
+# cloud is transiently failing (e.g. HTTP 500). After the list is exhausted we
+# give up (polling stays active; a reload re-arms the attempt).
+C2C_RETRY_DELAYS = [60, 120, 300, 600, 600, 600]
+
+
+async def _async_subscribe_c2c_plants(api, plant_ids, webhook_url):
+    """Attempt the C2C subscription for each plant.
+
+    Returns the set of plant_ids that still failed (exception or a status that
+    is neither 200/201 nor 409-already-active).
+    """
+    failed = set()
+    for plant_id in plant_ids:
+        try:
+            response = await api.set_subscribe_c2c_notifications(
+                plant_id, {"EndPointUrl": webhook_url}
+            )
+            status = response.get("status_code")
+            if status in (200, 201):
+                _LOGGER.info("Successfully subscribed C2C for Plant %s", plant_id)
+            elif status == 409:
+                _LOGGER.info(
+                    "C2C Subscription already active (409) for Plant %s. No action needed.",
+                    plant_id,
+                )
+            else:
+                _LOGGER.warning("Failed to subscribe C2C for Plant %s: %s", plant_id, response)
+                failed.add(plant_id)
+        except Exception as e:
+            # Log error but don't stop the setup process
+            _LOGGER.error("Error subscribing C2C for Plant %s: %s", plant_id, e)
+            failed.add(plant_id)
+    return failed
+
+
+def _schedule_c2c_retry(hass, entry, api, coordinator, webhook_url, pending, attempt):
+    """Schedule a delayed retry of the C2C subscription for the failed plants.
+
+    Self-reschedules with backoff until no plant is left or the schedule is
+    exhausted. While the coordinator is in Cool Down (rate-limited) the retry is
+    deferred without consuming an attempt, to avoid feeding the ban counter.
+    The pending timer is stored on the coordinator so unload can cancel it.
+    """
+    if attempt >= len(C2C_RETRY_DELAYS):
+        _LOGGER.error(
+            "Giving up C2C subscription for %s plant(s) after %s retries. Push "
+            "notifications disabled (polling still active); reload the integration to retry.",
+            len(pending),
+            attempt,
+        )
+        return
+
+    delay = C2C_RETRY_DELAYS[attempt]
+
+    async def _retry(_now=None):
+        coordinator.c2c_retry_unsub = None
+        if getattr(coordinator, "in_cool_down", False):
+            _LOGGER.warning(
+                "C2C retry deferred: Rate Limit (Cool Down) active for %s plant(s).",
+                len(pending),
+            )
+            _schedule_c2c_retry(hass, entry, api, coordinator, webhook_url, pending, attempt)
+            return
+        _LOGGER.info(
+            "Retrying C2C subscription (attempt %s/%s) for %s plant(s)...",
+            attempt + 1,
+            len(C2C_RETRY_DELAYS),
+            len(pending),
+        )
+        still_failed = await _async_subscribe_c2c_plants(api, pending, webhook_url)
+        if still_failed:
+            _schedule_c2c_retry(
+                hass, entry, api, coordinator, webhook_url, still_failed, attempt + 1
+            )
+        else:
+            _LOGGER.info("All C2C subscriptions registered successfully after retry.")
+
+    coordinator.c2c_retry_unsub = async_call_later(hass, delay, _retry)
+    _LOGGER.info(
+        "Scheduled C2C subscription retry in %ss for %s plant(s).", delay, len(pending)
+    )
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
@@ -69,6 +153,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # 4. Store coordinator
     hass.data.setdefault(DOMAIN, {})
     hass.data[DOMAIN][entry.entry_id] = coordinator
+    # Holder for a pending C2C-subscription retry timer (see _schedule_c2c_retry).
+    coordinator.c2c_retry_unsub = None
 
     # 5. Register Webhook Handler (Home Assistant Side)
     # This is local, so we can do it even if banned.
@@ -94,29 +180,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
         _LOGGER.info("Registering C2C subscriptions for %s plants to URL: %s", len(plant_ids), webhook_url)
 
-        for plant_id in plant_ids:
-            try:
-                payload = {
-                    "EndPointUrl": webhook_url
-                }
-                
-                # We attempt subscription even if the initial refresh failed.
-                response = await api.set_subscribe_c2c_notifications(plant_id, payload)
-                status = response.get("status_code")
-                
-                if status in (200, 201):
-                    _LOGGER.info("Successfully subscribed C2C for Plant %s", plant_id)
-                elif status == 409:
-                    _LOGGER.info("C2C Subscription already active (409) for Plant %s. No action needed.", plant_id)
-                else:
-                    _LOGGER.warning(
-                        "Failed to subscribe C2C for Plant %s: %s", 
-                        plant_id, 
-                        response
-                    )
-            except Exception as e:
-                # Log error but don't stop the setup process
-                _LOGGER.error("Error subscribing C2C for Plant %s: %s", plant_id, e)
+        # We attempt subscription even if the initial refresh failed.
+        failed = await _async_subscribe_c2c_plants(api, plant_ids, webhook_url)
+        if failed:
+            # Transient cloud failure (e.g. HTTP 500): retry in the background
+            # with backoff instead of leaving the plant unsubscribed until the
+            # next manual reload.
+            _schedule_c2c_retry(hass, entry, api, coordinator, webhook_url, failed, 0)
 
     # 7. Forward setup to platforms
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
@@ -159,7 +229,13 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload a config entry."""
     webhook_handler = X8000WebhookHandler(hass, WEBHOOK_ID)
     await webhook_handler.async_remove_webhook()
-    
+
+    # Cancel any pending C2C-subscription retry timer.
+    coordinator = hass.data.get(DOMAIN, {}).get(entry.entry_id)
+    if coordinator is not None and getattr(coordinator, "c2c_retry_unsub", None):
+        coordinator.c2c_retry_unsub()
+        coordinator.c2c_retry_unsub = None
+
     if unload_ok := await hass.config_entries.async_unload_platforms(entry, PLATFORMS):
         hass.data[DOMAIN].pop(entry.entry_id)
 
