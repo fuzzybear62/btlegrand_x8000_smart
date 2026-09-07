@@ -3,6 +3,15 @@
 All notable changes to this project are documented here. This project adheres
 to [Semantic Versioning](https://semver.org/).
 
+## [1.5.11] - 2026-09-07
+
+### Added
+- **Brand icon.** Bundled brand images under `custom_components/btlegrand_x8000/brand/`
+  (`icon.png`, `icon@2x.png`, `logo.png`, `logo@2x.png`), reusing the official Bticino
+  brand assets. On Home Assistant 2026.3.0+ these are served via the local brands proxy
+  and take priority over the CDN, so the integration shows its icon in Settings →
+  Devices & Services instead of the generic placeholder.
+
 ## [1.5.10] - 2026-09-07
 
 ### Added
@@ -26,5 +35,6 @@ First tagged release (HACS-installable).
   is active. Polling remains active throughout; the pending retry timer is
   cancelled on unload.
 
+[1.5.11]: https://github.com/fuzzybear62/btlegrand_x8000_smart/releases/tag/v1.5.11
 [1.5.10]: https://github.com/fuzzybear62/btlegrand_x8000_smart/releases/tag/v1.5.10
 [1.5.9]: https://github.com/fuzzybear62/btlegrand_x8000_smart/releases/tag/v1.5.9
