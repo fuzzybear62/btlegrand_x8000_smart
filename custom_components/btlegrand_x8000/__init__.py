@@ -190,7 +190,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     # 7. Forward setup to platforms
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
-    
+
+    device_count = len(coordinator.data) if coordinator.data else len(
+        entry.data.get("selected_thermostats", [])
+    )
+    _LOGGER.info(
+        "Legrand/Bticino Smarther X8000 integration setup completed. Loaded %d devices.",
+        device_count,
+    )
+
     return True
 
 

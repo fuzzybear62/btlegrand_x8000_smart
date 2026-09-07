@@ -16,7 +16,8 @@ Package root: `custom_components/btlegrand_x8000/`
 
 `config_flow` collects Legrand OAuth app credentials + selected thermostats →
 `__init__.async_setup_entry` builds the shared `X8000Api`, the
-`X8000Coordinator`, registers the webhook + C2C subscriptions, then forwards
+`X8000Coordinator`, registers the webhook + C2C subscriptions (any that fail
+against a transient cloud error are retried in the background), then forwards
 to the 6 platforms. The **coordinator** is the single source of truth: it holds
 live tuning state (intervals, flags, counters), polls the API on an adaptive
 schedule (`_async_update_data`), and also ingests **push** updates from the
@@ -35,7 +36,7 @@ Coordinator data shape (flat): `{ topology_id: <chronothermostat dict>, ... }`.
 |------|------:|------|
 | `manifest.json` | 12 | domain `btlegrand_x8000`, cloud_polling, `webhook` dependency, `integration_type: hub` |
 | `const.py` | 93 | DOMAIN, endpoints, `CONF_*` option keys, defaults, tuning bounds, derived tier policy |
-| `__init__.py` | 121 | setup/unload, C2C subscription, webhook registration |
+| `__init__.py` | 241 | setup/unload, C2C subscription (+ background retry on transient failure), webhook registration |
 | `auth.py` | 230 | OAuth code exchange + token refresh (shared aiohttp session) |
 | `api.py` | 403 | `X8000Api` — HTTP, rate-limit/401 handling, usage Store |
 | `coordinator.py` | 578 | `X8000Coordinator` — adaptive polling, cool-down, webhook merge |
@@ -89,11 +90,22 @@ switch, button.
 - `async_setup_entry:` builds api + coordinator; `await
   coordinator.async_config_entry_first_refresh()` guarded so a boot-time rate
   limit does **not** raise `ConfigEntryNotReady` into a retry loop.
-- C2C subscription block `:67–108` — skipped while in cool-down (`:72`); treats
-  HTTP 409 as "already subscribed" (`:99`).
-- `async_unload_entry:116` — unloads platforms; **does not** unregister the
-  webhook or remove C2C subscriptions (the subscription is intentionally left
-  in place so a reinstall reuses it — see §6).
+- C2C subscription block `:167–189` — skipped while in cool-down (`:168`); the
+  per-plant attempt lives in `_async_subscribe_c2c_plants:37` (200/201 = ok,
+  HTTP 409 = "already subscribed", anything else/exception = failed), returning
+  the set of plants that still failed.
+- **Background retry** `_schedule_c2c_retry:67` — on any failed plants, a
+  self-rescheduling `async_call_later` chain retries **only the failed ones**
+  with backoff `C2C_RETRY_DELAYS = [60,120,300,600,600,600]s` (`:34`), so a
+  transient cloud error (e.g. HTTP 500) self-heals without a manual reload.
+  While `coordinator.in_cool_down` it defers **without** consuming an attempt
+  (`:88`); after the schedule is exhausted it gives up with an error (polling
+  stays active). The pending timer handle is stored on
+  `coordinator.c2c_retry_unsub` (`:109`, `:157`).
+- `async_unload_entry:228` — cancels any pending C2C retry timer (`:235`), then
+  unloads platforms; **does not** unregister the webhook or remove C2C
+  subscriptions (the subscription is intentionally left in place so a reinstall
+  reuses it — see §6).
 
 ## 5. auth.py (`auth.py`)
 
